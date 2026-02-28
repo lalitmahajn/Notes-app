@@ -1,0 +1,15 @@
+# Environment files
+.env
+.env.local
+.env.*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+
+# Prompt file (not part of the app)
+Prompt.md
