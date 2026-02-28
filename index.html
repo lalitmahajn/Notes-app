@@ -1,10 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="A secure, login-based notes application. Create, edit and manage your private notes anywhere." />
+  <meta name="description"
+    content="A secure, login-based notes application. Create, edit and manage your private notes anywhere." />
+  <meta name="theme-color" content="#0f0f1a" />
   <title>Secure Notes</title>
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
 
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -14,9 +21,13 @@
   <!-- Supabase JS (CDN) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
+  <!-- Markdown parser (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
   <!-- Styles -->
   <link rel="stylesheet" href="style.css" />
 </head>
+
 <body>
 
   <!-- ============================================================
@@ -30,28 +41,14 @@
       <form id="auth-form" autocomplete="off">
         <div class="form-group">
           <label for="auth-email">Email</label>
-          <input
-            type="email"
-            id="auth-email"
-            placeholder="you@example.com"
-            required
-            autocomplete="email"
-          />
+          <input type="email" id="auth-email" placeholder="you@example.com" required autocomplete="email" />
         </div>
         <div class="form-group">
           <label for="auth-password">Password</label>
-          <input
-            type="password"
-            id="auth-password"
-            placeholder="••••••••"
-            required
-            minlength="6"
-            autocomplete="current-password"
-          />
+          <input type="password" id="auth-password" placeholder="••••••••" required minlength="6"
+            autocomplete="current-password" />
         </div>
-        <button type="submit" class="btn btn-primary" id="auth-submit-btn">
-          Sign In
-        </button>
+        <button type="submit" class="btn btn-primary" id="auth-submit-btn">Sign In</button>
       </form>
 
       <div class="auth-toggle">
@@ -68,26 +65,71 @@
 
     <!-- Top Bar -->
     <header class="top-bar">
-      <div class="logo">📝 Secure Notes</div>
+      <div class="top-bar-left">
+        <button class="btn-sidebar-toggle" id="sidebar-toggle-btn" aria-label="Toggle sidebar">☰</button>
+        <div class="logo">📝 Secure Notes</div>
+      </div>
       <div class="user-info">
+        <button class="btn btn-sm pwa-install-btn hidden" id="pwa-install-btn">📲 Install</button>
         <span class="user-email" id="user-email"></span>
         <button class="btn btn-sm btn-logout" id="logout-btn">Log Out</button>
       </div>
     </header>
 
-    <!-- Main Content -->
-    <main class="app-content">
-      <div class="notes-header">
-        <h2>My Notes <span class="notes-count" id="notes-count"></span></h2>
-        <button class="btn btn-primary" id="new-note-btn" style="width:auto">+ New Note</button>
-      </div>
+    <div class="app-body">
+      <!-- Sidebar (mobile backdrop) -->
+      <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
 
-      <div class="notes-grid" id="notes-grid">
-        <!-- Note cards rendered by JS -->
-      </div>
-    </main>
+      <!-- Sidebar -->
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+          <h3>Folders</h3>
+        </div>
+        <ul class="sidebar-list" id="folder-list">
+          <li class="sidebar-item active" data-folder-id="all">
+            <span>📋</span>
+            <span>All Notes</span>
+            <span class="folder-count" id="all-notes-count"></span>
+          </li>
+          <!-- Folders rendered by JS -->
+        </ul>
+        <div class="sidebar-footer">
+          <button class="btn-new-folder" id="new-folder-btn">+ New Folder</button>
+        </div>
+      </aside>
 
-    <!-- Floating Action Button (mobile shortcut) -->
+      <!-- Main Area -->
+      <div class="app-main">
+        <!-- Toolbar -->
+        <div class="toolbar">
+          <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="search-input" placeholder="Search notes…" />
+          </div>
+          <select class="sort-select" id="sort-select">
+            <option value="updated_desc">Last Updated</option>
+            <option value="created_desc">Newest First</option>
+            <option value="created_asc">Oldest First</option>
+            <option value="title_asc">Title A–Z</option>
+            <option value="title_desc">Title Z–A</option>
+          </select>
+        </div>
+
+        <!-- Active tag filters -->
+        <div class="tag-filter-bar" id="tag-filter-bar"></div>
+
+        <!-- Main Content -->
+        <main class="app-content">
+          <div class="notes-header">
+            <h2 id="notes-heading">My Notes <span class="notes-count" id="notes-count"></span></h2>
+            <button class="btn btn-primary" id="new-note-btn" style="width:auto">+ New Note</button>
+          </div>
+          <div class="notes-grid" id="notes-grid"></div>
+        </main>
+      </div>
+    </div>
+
+    <!-- FAB -->
     <button class="fab" id="fab-btn" aria-label="Create new note">+</button>
   </section>
 
@@ -97,15 +139,46 @@
   <div class="modal-overlay" id="note-modal">
     <div class="modal-card">
       <h2 id="modal-title">New Note</h2>
+
+      <div class="modal-meta-row">
+        <label class="pin-toggle">
+          <input type="checkbox" id="note-pin-input" />
+          <span class="pin-icon">📌</span>
+          <span>Pin</span>
+        </label>
+        <span class="autosave-status hidden" id="autosave-status">Saved ✓</span>
+      </div>
+
       <form id="note-form">
         <div class="form-group">
           <label for="note-title-input">Title</label>
           <input type="text" id="note-title-input" placeholder="Note title" required />
         </div>
+
         <div class="form-group">
-          <label for="note-content-input">Content</label>
-          <textarea id="note-content-input" placeholder="Write something…"></textarea>
+          <label for="note-content-input">Content <span style="font-weight:400;color:var(--text-muted)">(Markdown
+              supported)</span></label>
+          <textarea id="note-content-input"
+            placeholder="Write something… (supports **bold**, *italic*, - lists, # headings, `code`)"></textarea>
         </div>
+
+        <div class="modal-row">
+          <div class="form-group">
+            <label for="note-folder-select">Folder</label>
+            <select id="note-folder-select">
+              <option value="">None</option>
+              <!-- Folders populated by JS -->
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Tags</label>
+          <div class="tag-input-wrapper" id="tag-input-wrapper">
+            <input type="text" id="tag-input" placeholder="Add tag and press Enter" />
+          </div>
+        </div>
+
         <div class="modal-actions">
           <button type="button" class="btn btn-cancel" id="modal-cancel-btn">Cancel</button>
           <button type="submit" class="btn btn-save" id="modal-save-btn">Save</button>
@@ -115,11 +188,42 @@
   </div>
 
   <!-- ============================================================
-       TOAST
+       FOLDER MODAL
        ============================================================ -->
+  <div class="modal-overlay" id="folder-modal">
+    <div class="modal-card" style="max-width:400px">
+      <h2 id="folder-modal-title">New Folder</h2>
+      <form id="folder-form">
+        <div class="form-group">
+          <label for="folder-name-input">Name</label>
+          <input type="text" id="folder-name-input" placeholder="Folder name" required />
+        </div>
+        <div class="form-group">
+          <label>Color</label>
+          <div class="folder-color-picker" id="folder-color-picker">
+            <div class="color-swatch active" data-color="#6c63ff" style="background:#6c63ff"></div>
+            <div class="color-swatch" data-color="#ff4d6a" style="background:#ff4d6a"></div>
+            <div class="color-swatch" data-color="#34d399" style="background:#34d399"></div>
+            <div class="color-swatch" data-color="#fbbf24" style="background:#fbbf24"></div>
+            <div class="color-swatch" data-color="#60a5fa" style="background:#60a5fa"></div>
+            <div class="color-swatch" data-color="#f472b6" style="background:#f472b6"></div>
+            <div class="color-swatch" data-color="#a78bfa" style="background:#a78bfa"></div>
+            <div class="color-swatch" data-color="#fb923c" style="background:#fb923c"></div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-cancel" id="folder-cancel-btn">Cancel</button>
+          <button type="submit" class="btn btn-save">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- TOAST -->
   <div id="toast"></div>
 
   <!-- App Logic -->
   <script src="app.js"></script>
 </body>
+
 </html>
