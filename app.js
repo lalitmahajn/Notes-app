@@ -1138,6 +1138,8 @@ const UIController = (() => {
     return notes;
   }
 
+  let gridHasRendered = false;
+
   function renderFilteredNotes() {
     const notes = getFilteredNotes();
     const countEl = document.getElementById('notes-count');
@@ -1153,11 +1155,21 @@ const UIController = (() => {
           <p>${msg}</p>
           <span>${searchQuery ? 'Try a different search term.' : 'Tap <strong>+ New Note</strong> to get started.'}</span>
         </div>`;
+      gridHasRendered = true;
       return;
     }
 
+    // Skip entrance animation on re-renders (pin, delete, sync) to avoid flash
+    const isRerender = gridHasRendered;
     notesGrid.innerHTML = notes.map((note, i) => noteCardHTML(note, i)).join('');
+    if (isRerender) {
+      notesGrid.querySelectorAll('.note-card').forEach(c => {
+        c.style.animation = 'none';
+        c.style.opacity = '1';
+      });
+    }
     bindNoteCardEvents(notes);
+    gridHasRendered = true;
   }
 
   function noteCardHTML(note, index) {
@@ -1224,8 +1236,8 @@ const UIController = (() => {
         const updated = { ...note, is_pinned: !note.is_pinned, _dirty: true, updated_at: new Date().toISOString() };
         await IndexedDBService.putNote(updated);
         await reloadNotesFromIDB();
-        // Async sync — don't block UI
-        if (navigator.onLine) SyncEngine.sync().then(() => reloadNotesFromIDB());
+        // Sync in background — don't re-render, periodic sync will pick it up
+        if (navigator.onLine) SyncEngine.sync();
       });
 
       // Delete — tombstone in IndexedDB, trigger sync
@@ -1235,8 +1247,8 @@ const UIController = (() => {
         await IndexedDBService.markDeleted(id);
         showToast('Note deleted', 'success');
         await reloadNotesFromIDB();
-        // Async sync
-        if (navigator.onLine) SyncEngine.sync().then(() => reloadNotesFromIDB());
+        // Sync in background
+        if (navigator.onLine) SyncEngine.sync();
       });
     });
   }
