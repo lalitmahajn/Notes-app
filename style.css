@@ -1262,6 +1262,13 @@ body::after {
   font-style: italic;
 }
 
+.view-note-body hr {
+  border: 0;
+  height: 1px;
+  background: var(--border);
+  margin: var(--sp-5) 0;
+}
+
 .view-note-actions {
   display: flex;
   gap: var(--sp-3);
