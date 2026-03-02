@@ -15,6 +15,12 @@
       "purpose": "any maskable"
     },
     {
+      "src": "icons/notes_192px.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
       "src": "icons/notes_256px.png",
       "sizes": "256x256",
       "type": "image/png",
