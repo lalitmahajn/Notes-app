@@ -2,12 +2,12 @@
  * Service Worker — Secure Notes PWA
  *
  * Strategy:
- *   - Static assets (HTML, CSS, JS, fonts): Cache-first with network fallback
- *   - Supabase API calls: Pass through directly (no SW interception).
- *     Offline data handling is done by IndexedDB + SyncEngine in app.js.
+ *   - Static assets: Stale-while-revalidate (serve cached, update in background)
+ *   - Supabase / CDN: Pass through, never intercept
+ *   - On new SW version: skipWaiting + claim → instant takeover
  */
 
-const CACHE_NAME = 'secure-notes-v4';
+const CACHE_NAME = 'secure-notes-v5';
 const STATIC_ASSETS = [
     './',
     './index.html',
@@ -20,7 +20,7 @@ const STATIC_ASSETS = [
     './icons/notes_512px.png',
 ];
 
-// Install — cache static assets
+// Install — cache static assets, then activate immediately
 self.addEventListener('install', (event) => {
     event.waitUntil(
         caches.open(CACHE_NAME).then((cache) => {
@@ -28,56 +28,53 @@ self.addEventListener('install', (event) => {
             return cache.addAll(STATIC_ASSETS);
         })
     );
-    self.skipWaiting();
+    self.skipWaiting(); // Don't wait — activate right away
 });
 
-// Activate — clean old caches
+// Activate — clean old caches, claim all clients
 self.addEventListener('activate', (event) => {
     event.waitUntil(
         caches.keys().then((keys) =>
             Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
         )
     );
-    self.clients.claim();
+    self.clients.claim(); // Take control of all open tabs immediately
 });
 
-// Fetch
+// Fetch — stale-while-revalidate for local assets
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
 
-    // DO NOT intercept Supabase API or auth calls.
-    // IndexedDB + SyncEngine handles offline data; the SW should not
-    // interfere with Supabase requests (avoids CORS/caching issues).
-    if (url.hostname.includes('supabase')) {
-        return; // Let the browser handle it natively
-    }
+    // DO NOT intercept Supabase API or auth calls
+    if (url.hostname.includes('supabase')) return;
 
-    // DO NOT intercept CDN calls (marked.js, supabase-js, Google Fonts API)
-    // These can cause CORS issues when cached/intercepted by SW
+    // DO NOT intercept CDN calls (marked.js, supabase-js, Google Fonts)
     if (url.hostname.includes('cdn.jsdelivr.net') ||
         url.hostname.includes('fonts.googleapis.com')) {
         return;
     }
 
-    // Cache-first for local static assets only
+    // Stale-while-revalidate: serve from cache immediately,
+    // fetch fresh copy in background and update cache for next load
     event.respondWith(
-        caches.match(event.request).then((cached) => {
-            if (cached) return cached;
-            return fetch(event.request).then((res) => {
-                // Only cache successful GET responses for same-origin
+        caches.open(CACHE_NAME).then(async (cache) => {
+            const cached = await cache.match(event.request);
+            const networkFetch = fetch(event.request).then((res) => {
                 if (res.ok && event.request.method === 'GET' && url.origin === self.location.origin) {
-                    const clone = res.clone();
-                    caches.open(CACHE_NAME).then(c => c.put(event.request, clone));
+                    cache.put(event.request, res.clone());
                 }
                 return res;
+            }).catch(() => {
+                // Network failed — return cached or offline fallback
+                if (cached) return cached;
+                if (event.request.mode === 'navigate') {
+                    return cache.match('./index.html');
+                }
+                return new Response('Offline', { status: 503 });
             });
-        }).catch(() => {
-            // If both cache and network fail, return a basic offline page for navigation requests
-            if (event.request.mode === 'navigate') {
-                return caches.match('./index.html');
-            }
-            // For other requests, return a proper error response instead of undefined
-            return new Response('Offline', { status: 503, statusText: 'Service Unavailable' });
+
+            // Return cached version instantly if available, otherwise wait for network
+            return cached || networkFetch;
         })
     );
 });

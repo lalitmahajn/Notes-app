@@ -680,6 +680,16 @@ const UIController = (() => {
   const syncBtn = $('#sync-btn');
   const toastEl = $('#toast');
 
+  // View note modal
+  const viewNoteModal = $('#view-note-modal');
+  const viewNoteTitle = $('#view-note-title');
+  const viewNoteMeta = $('#view-note-meta');
+  const viewNoteBody = $('#view-note-body');
+  const viewNoteClose = $('#view-note-close');
+  const viewNoteEditBtn = $('#view-note-edit');
+  const viewNoteDeleteBtn = $('#view-note-delete');
+  let viewingNote = null;
+
   // State
   let isSignUp = false;
   let editingNoteId = null;
@@ -732,6 +742,24 @@ const UIController = (() => {
     modalCancelBtn.addEventListener('click', closeNoteModal);
     noteModal.addEventListener('click', (e) => { if (e.target === noteModal) closeNoteModal(); });
     noteForm.addEventListener('submit', handleNoteSave);
+
+    // View modal events
+    viewNoteClose.addEventListener('click', closeViewNote);
+    viewNoteModal.addEventListener('click', (e) => { if (e.target === viewNoteModal) closeViewNote(); });
+    viewNoteEditBtn.addEventListener('click', () => {
+      if (!viewingNote) return;
+      closeViewNote();
+      openNoteModal(viewingNote);
+    });
+    viewNoteDeleteBtn.addEventListener('click', async () => {
+      if (!viewingNote) return;
+      if (!confirm('Delete this note?')) return;
+      await IndexedDBService.markDeleted(viewingNote.id);
+      closeViewNote();
+      showToast('Note deleted', 'success');
+      await reloadNotesFromIDB();
+      if (navigator.onLine) SyncEngine.sync().then(() => reloadNotesFromIDB());
+    });
 
     // Tags input
     tagInput.addEventListener('keydown', handleTagKeydown);
@@ -1182,7 +1210,7 @@ const UIController = (() => {
 
       card.addEventListener('click', (e) => {
         if (e.target.closest('button')) return;
-        if (note) openNoteModal(note);
+        if (note) openViewNote(note);
       });
 
       card.querySelector('.btn-edit').addEventListener('click', (e) => {
@@ -1211,6 +1239,32 @@ const UIController = (() => {
         if (navigator.onLine) SyncEngine.sync().then(() => reloadNotesFromIDB());
       });
     });
+  }
+
+  // ── View note (read-only) ──
+  function openViewNote(note) {
+    viewingNote = note;
+    viewNoteTitle.textContent = note.title || 'Untitled';
+    viewNoteBody.innerHTML = MarkdownService.render(note.content || '<em>No content</em>');
+
+    // Build meta: date, folder badge, tags
+    let metaHTML = `<span class="view-date">${relativeTime(note.updated_at || note.created_at)}</span>`;
+    const folder = allFolders.find(f => f.id === note.folder_id);
+    if (folder) {
+      metaHTML += `<span class="view-folder-badge"><span class="folder-dot" style="background:${folder.color}"></span>${MarkdownService.escapeHTML(folder.name)}</span>`;
+    }
+    (note.tags || []).forEach(t => {
+      metaHTML += `<span class="tag-chip">#${MarkdownService.escapeHTML(t)}</span>`;
+    });
+    if (note.is_pinned) metaHTML += '<span style="color:var(--accent)">Pinned</span>';
+    viewNoteMeta.innerHTML = metaHTML;
+
+    viewNoteModal.classList.add('active');
+  }
+
+  function closeViewNote() {
+    viewNoteModal.classList.remove('active');
+    viewingNote = null;
   }
 
   // ── Note modal ──

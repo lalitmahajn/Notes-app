@@ -195,47 +195,83 @@
         </div>
       </form>
     </div>
-  </div>
 
-  <!-- ============================================================
+    <!-- ============================================================
+       VIEW NOTE MODAL (read-only display)
+       ============================================================ -->
+    <div class="modal-overlay" id="view-note-modal">
+      <div class="modal-card view-note-card">
+        <div class="view-note-header">
+          <h2 id="view-note-title"></h2>
+          <button class="btn btn-ghost view-close-btn" id="view-note-close" aria-label="Close">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="view-note-meta" id="view-note-meta"></div>
+        <div class="view-note-body" id="view-note-body"></div>
+        <div class="view-note-actions">
+          <button class="btn btn-primary" id="view-note-edit">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+            Edit
+          </button>
+          <button class="btn btn-danger" id="view-note-delete">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+    <!-- ============================================================
        FOLDER MODAL
        ============================================================ -->
-  <div class="modal-overlay" id="folder-modal">
-    <div class="modal-card" style="max-width:400px">
-      <h2 id="folder-modal-title">New Folder</h2>
-      <form id="folder-form">
-        <div class="form-group">
-          <label for="folder-name-input">Name</label>
-          <input type="text" id="folder-name-input" placeholder="Folder name" required />
-        </div>
-        <div class="form-group">
-          <label>Color</label>
-          <div class="folder-color-picker" id="folder-color-picker">
-            <div class="color-swatch active" data-color="#6c63ff" style="background:#6c63ff"></div>
-            <div class="color-swatch" data-color="#ff4d6a" style="background:#ff4d6a"></div>
-            <div class="color-swatch" data-color="#34d399" style="background:#34d399"></div>
-            <div class="color-swatch" data-color="#fbbf24" style="background:#fbbf24"></div>
-            <div class="color-swatch" data-color="#60a5fa" style="background:#60a5fa"></div>
-            <div class="color-swatch" data-color="#f472b6" style="background:#f472b6"></div>
-            <div class="color-swatch" data-color="#a78bfa" style="background:#a78bfa"></div>
-            <div class="color-swatch" data-color="#fb923c" style="background:#fb923c"></div>
+    <div class="modal-overlay" id="folder-modal">
+      <div class="modal-card" style="max-width:400px">
+        <h2 id="folder-modal-title">New Folder</h2>
+        <form id="folder-form">
+          <div class="form-group">
+            <label for="folder-name-input">Name</label>
+            <input type="text" id="folder-name-input" placeholder="Folder name" required />
           </div>
-        </div>
-        <div class="modal-actions">
-          <button type="button" class="btn btn-cancel" id="folder-cancel-btn">Cancel</button>
-          <button type="submit" class="btn btn-save">Save</button>
-        </div>
-      </form>
+          <div class="form-group">
+            <label>Color</label>
+            <div class="folder-color-picker" id="folder-color-picker">
+              <div class="color-swatch active" data-color="#6c63ff" style="background:#6c63ff"></div>
+              <div class="color-swatch" data-color="#ff4d6a" style="background:#ff4d6a"></div>
+              <div class="color-swatch" data-color="#34d399" style="background:#34d399"></div>
+              <div class="color-swatch" data-color="#fbbf24" style="background:#fbbf24"></div>
+              <div class="color-swatch" data-color="#60a5fa" style="background:#60a5fa"></div>
+              <div class="color-swatch" data-color="#f472b6" style="background:#f472b6"></div>
+              <div class="color-swatch" data-color="#a78bfa" style="background:#a78bfa"></div>
+              <div class="color-swatch" data-color="#fb923c" style="background:#fb923c"></div>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-cancel" id="folder-cancel-btn">Cancel</button>
+            <button type="submit" class="btn btn-save">Save</button>
+          </div>
+        </form>
+      </div>
     </div>
-  </div>
 
-  <!-- TOAST -->
-  <div id="toast"></div>
+    <!-- TOAST -->
+    <div id="toast"></div>
 
-  <!-- App Logic -->
-  <!-- Local config override (gitignored, silently skipped if missing) -->
-  <script src="config.local.js" onerror="/* not found — using GitHub Actions placeholders */"></script>
-  <script src="app.js"></script>
+    <!-- App Logic -->
+    <!-- Local config override (gitignored, silently skipped if missing) -->
+    <script src="config.local.js" onerror="/* not found — using GitHub Actions placeholders */"></script>
+    <script src="app.js"></script>
 </body>
 
 </html>
