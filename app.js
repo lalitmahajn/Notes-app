@@ -524,8 +524,8 @@ const SyncEngine = (() => {
         console.log(`[Sync] Keeping dirty local note: ${local.id}`);
       } else {
         // Both exist, local is clean — take the newer one
-        const remoteTime = new Date(remote.updated_at).getTime();
-        const localTime = new Date(local.updated_at).getTime();
+        const remoteTime = new Date(toUTC(remote.updated_at)).getTime();
+        const localTime = new Date(toUTC(local.updated_at)).getTime();
         if (remoteTime > localTime) {
           // Remote is newer — overwrite local
           await IndexedDBService.putNote({
@@ -585,9 +585,24 @@ const MarkdownService = (() => {
    Helpers
    ────────────────────────────────────────────── */
 
+/**
+ * Ensure a timestamp string is parsed as UTC.
+ * Supabase returns timestamptz as "2026-03-02T05:35:00" without a "Z" or
+ * "+00:00" suffix. JavaScript's Date() treats such strings as LOCAL time,
+ * which causes wrong relative-time calculations in non-UTC timezones.
+ * This helper appends "Z" if no timezone indicator is present.
+ */
+function toUTC(dateStr) {
+  if (!dateStr) return dateStr;
+  const s = String(dateStr).trim();
+  // Already has timezone info (Z, +HH:MM, -HH:MM, +HHMM, -HHMM)
+  if (s.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(s)) return s;
+  return s + 'Z';
+}
+
 function relativeTime(dateStr) {
   const now = Date.now();
-  const then = new Date(dateStr).getTime();
+  const then = new Date(toUTC(dateStr)).getTime();
   const diff = Math.max(0, now - then);
   const secs = Math.floor(diff / 1000);
   if (secs < 60) return 'Just now';
@@ -598,7 +613,7 @@ function relativeTime(dateStr) {
   const days = Math.floor(hrs / 24);
   if (days < 7) return `${days}d ago`;
   if (days < 30) return `${Math.floor(days / 7)}w ago`;
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return new Date(toUTC(dateStr)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function debounce(fn, ms) {
@@ -662,6 +677,7 @@ const UIController = (() => {
   const folderCancelBtn = $('#folder-cancel-btn');
   const pwaInstallBtn = $('#pwa-install-btn');
   const syncStatusEl = $('#sync-status');
+  const syncBtn = $('#sync-btn');
   const toastEl = $('#toast');
 
   // State
@@ -764,6 +780,16 @@ const UIController = (() => {
       await deferredPWAPrompt.userChoice;
       deferredPWAPrompt = null;
       pwaInstallBtn.classList.add('hidden');
+    });
+
+    // Force sync button
+    syncBtn.addEventListener('click', async () => {
+      if (!navigator.onLine) { showToast('You are offline', 'error'); return; }
+      syncBtn.style.animation = 'spin 0.6s linear infinite';
+      await SyncEngine.sync();
+      await reloadNotesFromIDB();
+      await loadFolders();
+      syncBtn.style.animation = '';
     });
   }
 
@@ -1072,9 +1098,9 @@ const UIController = (() => {
       if (a.is_pinned && !b.is_pinned) return -1;
       if (!a.is_pinned && b.is_pinned) return 1;
       switch (sort) {
-        case 'updated_desc': return new Date(b.updated_at) - new Date(a.updated_at);
-        case 'created_desc': return new Date(b.created_at) - new Date(a.created_at);
-        case 'created_asc': return new Date(a.created_at) - new Date(b.created_at);
+        case 'updated_desc': return new Date(toUTC(b.updated_at)) - new Date(toUTC(a.updated_at));
+        case 'created_desc': return new Date(toUTC(b.created_at)) - new Date(toUTC(a.created_at));
+        case 'created_asc': return new Date(toUTC(a.created_at)) - new Date(toUTC(b.created_at));
         case 'title_asc': return (a.title || '').localeCompare(b.title || '');
         case 'title_desc': return (b.title || '').localeCompare(a.title || '');
         default: return 0;

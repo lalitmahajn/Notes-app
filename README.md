@@ -1,42 +1,77 @@
 # 📝 Secure Notes
 
-A **secure, login-based Notes application** built with vanilla HTML/CSS/JS and [Supabase](https://supabase.com) for authentication, database, and row-level security. Installable as a **PWA**, deployable on **GitHub Pages** — no server required.
+[![Deploy to GitHub Pages](https://github.com/lalitmahajn/Notes-app/actions/workflows/deploy.yml/badge.svg)](https://github.com/lalitmahajn/Notes-app/actions/workflows/deploy.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+A **secure, offline-first notes application** built with vanilla HTML/CSS/JS and [Supabase](https://supabase.com). Installable as a **PWA** with full offline support via IndexedDB.
+
+> 🔒 Every note is protected by Row Level Security — users only see their own data.
 
 ---
 
 ## ✨ Features
 
-- **Authentication**: Email + password sign-up / sign-in (Supabase Auth)
-- **Notes CRUD**: Create, edit, delete notes with auto-save
-- **📌 Pin Notes**: Pin important notes to the top
-- **📋 Markdown**: Write notes in Markdown (bold, italic, lists, code blocks, headings)
-- **🏷️ Tags**: Add tags to notes, filter by tag
-- **📂 Folders**: Organize notes into color-coded folders
-- **🔍 Search**: Real-time search across titles, content, and tags
-- **↕️ Sort**: Sort by last updated, newest, oldest, or title
-- **🕐 Relative Time**: "2h ago", "3d ago" timestamps
-- **🔄 Auto-Save**: Debounced auto-save while editing (1.5s delay)
-- **📱 PWA**: Installable as a native-like app with offline caching
-- **🔒 Security**: Row Level Security — each user sees only their own data
-- **🎨 Design**: Dark glassmorphic UI with sidebar, animations, fully responsive
+- **🔐 Authentication** — Email + password (Supabase Auth)
+- **📝 Notes CRUD** — Create, edit, delete notes
+- **📌 Pin Notes** — Pin important notes to the top
+- **📋 Markdown** — Write in Markdown (bold, lists, headings, code blocks)
+- **🏷️ Tags** — Tag notes and filter by tag
+- **📂 Folders** — Organize notes into color-coded folders
+- **🔍 Search** — Real-time search across titles, content, and tags
+- **↕️ Sort** — Sort by date, title, or last updated
+- **🕐 Relative Time** — "2h ago", "3d ago" timestamps
+- **🔄 Auto-Save** — Debounced save while editing
+- **📴 Offline-First** — Full offline support via IndexedDB + background sync
+- **📱 PWA** — Installable as a native-like app
+- **🎨 Dark UI** — Glassmorphic dark theme, responsive on all devices
+
+---
+
+## 🖥️ Demo
+
+Deployed on GitHub Pages: **[Live App](https://lalitmahajn.github.io/Notes-app/)**
+
+---
+
+## 🏗️ Architecture
+
+```
+┌──────────────┐     ┌──────────────┐     ┌───────────────┐
+│     UI       │ ──→ │  IndexedDB   │ ──→ │   Supabase    │
+│ (instant)    │     │  (local)     │     │   (remote)    │
+└──────────────┘     └──────────────┘     └───────────────┘
+                      ↑ SyncEngine ↓
+                      Push dirty / Pull remote
+                      Last-write-wins conflict resolution
+```
+
+The UI **never** reads directly from Supabase. All reads come from IndexedDB. Supabase is the remote sync target only.
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Create a Supabase Project
+### Prerequisites
 
-1. Go to [supabase.com](https://supabase.com) and create a free project.
-2. Copy the **Project URL** and **anon (public) API key** from **Settings → API**.
+- A free [Supabase](https://supabase.com) project
+- [Node.js](https://nodejs.org/) (for local dev server)
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/lalitmahajn/Notes-app.git
+cd Notes-app
+```
 
 ### 2. Database Setup
 
 Open the **SQL Editor** in your Supabase dashboard and run:
 
+<details>
+<summary>📋 Click to expand SQL</summary>
+
 ```sql
--- ═══════════════════════════════════════
--- NOTES TABLE
--- ═══════════════════════════════════════
+-- Notes table
 CREATE TABLE IF NOT EXISTS notes (
   id         uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id    uuid REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
@@ -50,15 +85,12 @@ CREATE TABLE IF NOT EXISTS notes (
 );
 
 ALTER TABLE notes ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Users can view own notes"   ON notes FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can create own notes"  ON notes FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users can update own notes"  ON notes FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users can delete own notes"  ON notes FOR DELETE USING (auth.uid() = user_id);
 
--- ═══════════════════════════════════════
--- FOLDERS TABLE
--- ═══════════════════════════════════════
+-- Folders table
 CREATE TABLE IF NOT EXISTS folders (
   id         uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id    uuid REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
@@ -68,37 +100,28 @@ CREATE TABLE IF NOT EXISTS folders (
 );
 
 ALTER TABLE folders ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Users can view own folders"   ON folders FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can create own folders"  ON folders FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users can update own folders"  ON folders FOR UPDATE USING (auth.uid() = user_id);
 CREATE POLICY "Users can delete own folders"  ON folders FOR DELETE USING (auth.uid() = user_id);
 
--- Foreign key: notes → folders
+-- Foreign key
 ALTER TABLE notes ADD CONSTRAINT fk_folder
   FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL;
 ```
 
-> **⚠️ Upgrading from v1?** If you already have the `notes` table, run this migration instead:
->
-> ```sql
-> ALTER TABLE notes ADD COLUMN IF NOT EXISTS is_pinned boolean DEFAULT false;
-> ALTER TABLE notes ADD COLUMN IF NOT EXISTS tags text[] DEFAULT '{}';
-> ALTER TABLE notes ADD COLUMN IF NOT EXISTS folder_id uuid DEFAULT NULL;
->
-> -- Then create the folders table and foreign key from the SQL above
-> ```
+</details>
 
 ### 3. Configure Locally
 
-Create a `.env` file (already gitignored) with your real values:
+Create a `.env` file (gitignored):
 
-```
+```env
 SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
 SUPABASE_ANON_KEY=YOUR_ANON_PUBLIC_KEY
 ```
 
-Paste those values into `app.js` (replace the `__SUPABASE_URL__` and `__SUPABASE_ANON_KEY__` placeholders) for local dev.
+Paste those values into `app.js` (replace `__SUPABASE_URL__` and `__SUPABASE_ANON_KEY__`) for local development.
 
 ### 4. Run Locally
 
@@ -112,76 +135,71 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## 🌐 Deploy to GitHub Pages
 
-The repo includes a GitHub Actions workflow (`.github/workflows/deploy.yml`) that injects credentials from **GitHub Secrets** and deploys automatically.
+The repo includes a GitHub Actions workflow that injects credentials from **GitHub Secrets** and deploys automatically.
 
-### Step 1 — Push to GitHub
+1. **Add Secrets** — Go to repo **Settings → Secrets → Actions** and add:
 
-```bash
-git init && git add . && git commit -m "Initial commit"
-git remote add origin https://github.com/YOU/YOUR_REPO.git
-git push -u origin main
-```
+   | Secret | Value |
+   |--------|-------|
+   | `SUPABASE_URL` | `https://YOUR_PROJECT_REF.supabase.co` |
+   | `SUPABASE_ANON_KEY` | Your anon (public) key |
 
-### Step 2 — Add Repository Secrets
+2. **Enable Pages** — **Settings → Pages → Source** → select **GitHub Actions**
 
-**Settings → Secrets and variables → Actions → New repository secret**:
-
-| Secret | Value |
-|--------|-------|
-| `SUPABASE_URL` | `https://YOUR_PROJECT_REF.supabase.co` |
-| `SUPABASE_ANON_KEY` | Your anon (public) key |
-
-### Step 3 — Enable Pages
-
-**Settings → Pages → Source** → select **GitHub Actions**
-
-### Step 4 — Deploy
-
-Push to `main` or manually run the workflow. Your app will be live at `https://YOU.github.io/YOUR_REPO/`.
+3. **Push to `main`** — The workflow runs automatically and deploys your site.
 
 ---
 
-## 🛡️ Security Model
+## 🛡️ Security
 
 | Layer | Protection |
 |-------|-----------|
-| **Supabase Auth** | Email + password; JWT per session |
+| **Supabase Auth** | Email + password; bcrypt-hashed; JWT sessions |
 | **Row Level Security** | `auth.uid() = user_id` on every query |
 | **Anon key only** | Public key safe to expose; RLS enforces access |
-| **No secrets in repo** | Credentials injected via GitHub Actions |
+| **HTTPS** | All data in transit encrypted |
+| **No server secrets** | Static site — no backend to compromise |
 
 ---
 
 ## 📁 Project Structure
 
 ```
-/notes-app
- ├── index.html         ← App shell (auth, sidebar, notes grid, modals)
- ├── style.css          ← Design system & responsive styles
- ├── app.js             ← Application logic (6 decoupled modules)
- ├── manifest.json      ← PWA manifest
- ├── sw.js              ← Service worker (offline caching)
- ├── icons/             ← PWA icons (192, 512)
- ├── .env               ← Local credentials (gitignored)
- ├── .gitignore
- ├── .github/workflows/ ← GitHub Actions deployment
- └── README.md
+├── index.html            # App shell (auth, sidebar, modals)
+├── style.css             # Design system & responsive styles
+├── app.js                # Application logic (8 decoupled modules)
+├── manifest.json         # PWA manifest
+├── sw.js                 # Service worker (offline caching)
+├── icons/                # PWA icons
+├── .env                  # Local credentials (gitignored)
+├── .gitignore
+├── .github/workflows/    # GitHub Actions CI/CD
+├── LICENSE               # MIT License
+└── README.md
 ```
 
 ---
 
-## 🔮 Future Roadmap
+## 🤝 Contributing
 
-- **End-to-end encryption** — encrypt content client-side
-- **Rich text editor** — WYSIWYG instead of plain Markdown
-- **File attachments** — images/files via Supabase Storage
-- **Shared notes** — share with other users
-- **Reminders** — browser notifications
-- **Version History** — track changes, rollback
-- **React / Vue migration** — swap `UIController`; keep services unchanged
+Contributions are welcome! Please follow these steps:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ---
 
 ## 📜 License
 
-MIT — use freely.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 🙏 Acknowledgments
+
+- [Supabase](https://supabase.com) — Backend as a Service
+- [marked.js](https://marked.js.org/) — Markdown parser
+- [Inter](https://rsms.me/inter/) — UI typeface
