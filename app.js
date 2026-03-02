@@ -22,8 +22,8 @@
 /* ──────────────────────────────────────────────
    CONFIGURATION
    ────────────────────────────────────────────── */
-const SUPABASE_URL = 'https://kafticldfipzbvnowrqe.supabase.co';
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZnRpY2xkZmlwemJ2bm93cnFlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyNzA4NTcsImV4cCI6MjA4Nzg0Njg1N30.JfJR9tdtScf0JmqIHmLREaRq4r7vwKe5Z9_QVcVpBz0';
+const SUPABASE_URL = '__SUPABASE_URL__';
+const SUPABASE_ANON = '__SUPABASE_ANON_KEY__';
 
 /* ──────────────────────────────────────────────
    SupabaseService
