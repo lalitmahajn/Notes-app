@@ -13,3 +13,7 @@ Thumbs.db
 
 # Prompt file (not part of the app)
 Prompt.md
+Prompt_2.md
+
+# Local config (contains Supabase credentials)
+config.local.js

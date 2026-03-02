@@ -22,8 +22,8 @@
 /* ──────────────────────────────────────────────
    CONFIGURATION
    ────────────────────────────────────────────── */
-const SUPABASE_URL = '__SUPABASE_URL__';
-const SUPABASE_ANON = '__SUPABASE_ANON_KEY__';
+const SUPABASE_URL = window.SUPABASE_URL || '__SUPABASE_URL__';
+const SUPABASE_ANON = window.SUPABASE_ANON || '__SUPABASE_ANON_KEY__';
 
 /* ──────────────────────────────────────────────
    SupabaseService
@@ -768,19 +768,7 @@ const UIController = (() => {
       });
     });
 
-    // PWA
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      deferredPWAPrompt = e;
-      pwaInstallBtn.classList.remove('hidden');
-    });
-    pwaInstallBtn.addEventListener('click', async () => {
-      if (!deferredPWAPrompt) return;
-      deferredPWAPrompt.prompt();
-      await deferredPWAPrompt.userChoice;
-      deferredPWAPrompt = null;
-      pwaInstallBtn.classList.add('hidden');
-    });
+    // PWA — let the browser show its native install banner (no preventDefault)
 
     // Force sync button
     syncBtn.addEventListener('click', async () => {

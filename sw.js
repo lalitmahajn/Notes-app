@@ -7,7 +7,7 @@
  *     Offline data handling is done by IndexedDB + SyncEngine in app.js.
  */
 
-const CACHE_NAME = 'secure-notes-v3';
+const CACHE_NAME = 'secure-notes-v4';
 const STATIC_ASSETS = [
     './',
     './index.html',
