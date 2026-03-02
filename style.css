@@ -1,34 +1,34 @@
 /* ============================================================
-   Secure Notes v2 — Design System & Styles
-   Dark-mode · Glassmorphism · Inter font · Sidebar · Responsive
+   Secure Notes — Dark Apple Liquid Glass Theme
+   Deep blacks · Frosted glass · Blur surfaces · Apple typography
    ============================================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-/* ---------- Design Tokens ---------- */
+/* ---------- Design Tokens — Dark Liquid Glass ---------- */
 :root {
-  --bg-primary: #0f0f1a;
-  --bg-secondary: #1a1a2e;
-  --bg-card: rgba(30, 30, 50, 0.7);
-  --bg-card-hover: rgba(40, 40, 65, 0.85);
-  --bg-overlay: rgba(0, 0, 0, 0.6);
-  --bg-sidebar: rgba(18, 18, 32, 0.95);
-  --text-primary: #eaeaff;
-  --text-secondary: #9d9db5;
-  --text-muted: #6b6b85;
-  --accent-start: #6c63ff;
-  --accent-end: #b44dff;
-  --accent: #7c73ff;
-  --accent-light: rgba(108, 99, 255, 0.15);
-  --danger: #ff4d6a;
-  --danger-hover: #ff2850;
-  --success: #34d399;
-  --warning: #fbbf24;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-light: rgba(255, 255, 255, 0.12);
-  --pin-color: #fbbf24;
+  --bg-primary: #050507;
+  --bg-secondary: #0c0c12;
+  --bg-card: rgba(28, 28, 35, 0.55);
+  --bg-card-hover: rgba(38, 38, 48, 0.65);
+  --bg-overlay: rgba(0, 0, 0, 0.7);
+  --bg-sidebar: rgba(12, 12, 20, 0.85);
+  --text-primary: #f5f5f7;
+  --text-secondary: #a1a1a6;
+  --text-muted: #6e6e73;
+  --accent-start: #0a84ff;
+  --accent-end: #5e5ce6;
+  --accent: #0a84ff;
+  --accent-light: rgba(10, 132, 255, 0.12);
+  --danger: #ff453a;
+  --danger-hover: #ff2d20;
+  --success: #30d158;
+  --warning: #ffd60a;
+  --border: rgba(255, 255, 255, 0.06);
+  --border-light: rgba(255, 255, 255, 0.10);
+  --pin-color: #ffd60a;
 
-  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'SF Pro Display', 'Helvetica Neue', sans-serif;
   --fs-xs: 0.75rem;
   --fs-sm: 0.875rem;
   --fs-base: 1rem;
@@ -46,13 +46,16 @@
   --sp-10: 2.5rem;
   --sp-12: 3rem;
 
-  --radius-sm: 8px;
-  --radius-md: 14px;
-  --radius-lg: 20px;
-  --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.35);
-  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.55);
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.4), 0 0 0 0.5px rgba(255, 255, 255, 0.05);
+  --shadow-modal: 0 24px 80px rgba(0, 0, 0, 0.65), 0 0 0 0.5px rgba(255, 255, 255, 0.08);
   --transition-fast: 0.18s ease;
-  --transition-base: 0.3s ease;
+  --transition-base: 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+
+  --glass-blur: blur(40px) saturate(180%);
+  --glass-blur-light: blur(20px) saturate(150%);
 
   --sidebar-width: 260px;
 }
@@ -78,21 +81,38 @@ body {
   min-height: 100vh;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .hidden {
   display: none !important;
 }
 
-body::before {
+/* Ambient light blobs — gives depth behind glass surfaces */
+body::before,
+body::after {
   content: '';
   position: fixed;
-  inset: 0;
-  background:
-    radial-gradient(ellipse at 20% 0%, rgba(108, 99, 255, 0.12) 0%, transparent 60%),
-    radial-gradient(ellipse at 80% 100%, rgba(180, 77, 255, 0.10) 0%, transparent 60%);
   pointer-events: none;
   z-index: 0;
+  border-radius: 50%;
+  filter: blur(120px);
+}
+
+body::before {
+  width: 600px;
+  height: 600px;
+  top: -200px;
+  left: -100px;
+  background: radial-gradient(circle, rgba(10, 132, 255, 0.08) 0%, transparent 70%);
+}
+
+body::after {
+  width: 500px;
+  height: 500px;
+  bottom: -150px;
+  right: -100px;
+  background: radial-gradient(circle, rgba(94, 92, 230, 0.06) 0%, transparent 70%);
 }
 
 /* ============================================================
@@ -112,9 +132,9 @@ body::before {
   width: 100%;
   max-width: 420px;
   background: var(--bg-card);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid var(--border);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   padding: var(--sp-10);
   box-shadow: var(--shadow-card);
@@ -176,7 +196,7 @@ body::before {
 .form-group textarea:focus,
 .form-group select:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(108, 99, 255, 0.25);
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.2);
 }
 
 .form-group select {
@@ -223,7 +243,7 @@ body::before {
 }
 
 .btn-primary:hover {
-  box-shadow: 0 4px 20px rgba(108, 99, 255, 0.4);
+  box-shadow: 0 4px 20px rgba(10, 132, 255, 0.35);
 }
 
 .btn-ghost {
@@ -232,7 +252,7 @@ body::before {
 }
 
 .btn-ghost:hover {
-  background: rgba(108, 99, 255, 0.1);
+  background: rgba(10, 132, 255, 0.1);
 }
 
 .btn-danger {
@@ -309,6 +329,8 @@ body::before {
 .sidebar {
   width: var(--sidebar-width);
   background: var(--bg-sidebar);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -420,9 +442,9 @@ body::before {
   align-items: center;
   justify-content: space-between;
   padding: var(--sp-4) var(--sp-8);
-  background: var(--bg-card);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  background: rgba(12, 12, 18, 0.65);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
@@ -432,10 +454,8 @@ body::before {
 .top-bar .logo {
   font-size: var(--fs-lg);
   font-weight: 700;
-  background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
 }
 
 .top-bar-left {
@@ -478,9 +498,9 @@ body::before {
 }
 
 .btn-logout:hover {
-  background: rgba(255, 77, 106, 0.12);
+  background: rgba(255, 69, 58, 0.12);
   color: var(--danger);
-  border-color: rgba(255, 77, 106, 0.3);
+  border-color: rgba(255, 69, 58, 0.3);
 }
 
 /* ---------- Toolbar ---------- */
@@ -490,7 +510,9 @@ body::before {
   gap: var(--sp-4);
   flex-wrap: wrap;
   padding: var(--sp-4) var(--sp-8);
-  background: rgba(26, 26, 46, 0.5);
+  background: rgba(12, 12, 18, 0.4);
+  backdrop-filter: var(--glass-blur-light);
+  -webkit-backdrop-filter: var(--glass-blur-light);
   border-bottom: 1px solid var(--border);
 }
 
@@ -515,7 +537,7 @@ body::before {
 
 .search-box input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(108, 99, 255, 0.25);
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.2);
 }
 
 .search-box .search-icon {
@@ -648,11 +670,13 @@ body::before {
 /* ---------- Note Card ---------- */
 .note-card {
   background: var(--bg-card);
+  backdrop-filter: var(--glass-blur-light);
+  -webkit-backdrop-filter: var(--glass-blur-light);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: var(--sp-6);
   cursor: pointer;
-  transition: transform var(--transition-base), box-shadow var(--transition-base), background var(--transition-base);
+  transition: transform var(--transition-base), box-shadow var(--transition-base), background var(--transition-base), border-color var(--transition-base);
   display: flex;
   flex-direction: column;
   animation: fadeSlideUp 0.35s ease forwards;
@@ -661,9 +685,10 @@ body::before {
 }
 
 .note-card:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--shadow-card);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 0.5px rgba(255, 255, 255, 0.08);
   background: var(--bg-card-hover);
+  border-color: var(--border-light);
 }
 
 .note-card.pinned {
@@ -824,7 +849,7 @@ body::before {
   font-size: 1.75rem;
   border: none;
   cursor: pointer;
-  box-shadow: 0 6px 24px rgba(108, 99, 255, 0.45);
+  box-shadow: 0 6px 24px rgba(10, 132, 255, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -834,7 +859,7 @@ body::before {
 
 .fab:hover {
   transform: scale(1.1);
-  box-shadow: 0 8px 32px rgba(108, 99, 255, 0.6);
+  box-shadow: 0 8px 32px rgba(10, 132, 255, 0.5);
 }
 
 .fab:active {
@@ -848,8 +873,8 @@ body::before {
   position: fixed;
   inset: 0;
   background: var(--bg-overlay);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -867,8 +892,10 @@ body::before {
 .modal-card {
   width: 95%;
   max-width: 620px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: rgba(22, 22, 30, 0.85);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   padding: var(--sp-8);
   box-shadow: var(--shadow-modal);
@@ -974,7 +1001,7 @@ body::before {
 
 .tag-input-wrapper:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(108, 99, 255, 0.25);
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.2);
 }
 
 .tag-input-wrapper .tag-chip {
@@ -1008,7 +1035,7 @@ body::before {
 }
 
 .modal-actions .btn-save:hover {
-  box-shadow: 0 4px 20px rgba(108, 99, 255, 0.4);
+  box-shadow: 0 4px 20px rgba(10, 132, 255, 0.35);
 }
 
 .modal-actions .btn-cancel {
@@ -1198,7 +1225,7 @@ body::before {
 }
 
 .view-note-body code {
-  background: rgba(108, 99, 255, 0.15);
+  background: rgba(10, 132, 255, 0.12);
   padding: 2px 6px;
   border-radius: var(--radius-sm);
   font-size: 0.9em;

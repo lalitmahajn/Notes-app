@@ -701,7 +701,7 @@ const UIController = (() => {
   let activeTagFilter = null;
   let searchQuery = '';
   let editingFolderId = null;
-  let selectedFolderColor = '#6c63ff';
+  let selectedFolderColor = '#0a84ff';
   let deferredPWAPrompt = null;
   let currentUserId = null;
 
@@ -1404,7 +1404,7 @@ const UIController = (() => {
     editingFolderId = folder ? folder.id : null;
     folderModalTitle.textContent = folder ? 'Edit Folder' : 'New Folder';
     folderNameInput.value = folder ? folder.name : '';
-    selectedFolderColor = folder ? folder.color : '#6c63ff';
+    selectedFolderColor = folder ? folder.color : '#0a84ff';
     folderColorPicker.querySelectorAll('.color-swatch').forEach(s => {
       s.classList.toggle('active', s.dataset.color === selectedFolderColor);
     });
