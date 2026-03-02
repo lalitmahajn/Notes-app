@@ -1149,19 +1149,16 @@ body::before {
     display: flex;
   }
 
-  .toolbar {
-    padding: var(--sp-3) var(--sp-4);
-    gap: var(--sp-3);
-  }
-
+  /* ── Top bar: compact single line ── */
   .top-bar {
-    padding: var(--sp-3) var(--sp-4);
+    padding: var(--sp-2) var(--sp-3);
     gap: var(--sp-2);
   }
 
   .top-bar-left {
     gap: var(--sp-2);
     min-width: 0;
+    flex-shrink: 1;
   }
 
   .top-bar .logo {
@@ -1170,82 +1167,43 @@ body::before {
   }
 
   .sync-status {
-    font-size: 0.65rem;
-    padding: 2px 7px;
+    font-size: 0.6rem;
+    padding: 2px 6px;
   }
 
   .btn-sync {
-    font-size: var(--fs-xs);
-    padding: 2px;
+    font-size: 0.7rem;
+    padding: 1px;
+    flex-shrink: 0;
   }
 
   .top-bar .user-info {
-    gap: var(--sp-2);
+    gap: var(--sp-1);
+    flex-shrink: 0;
   }
 
   .top-bar .user-email {
     display: none;
   }
 
+  /* Force "Log Out" to stay on one line */
   .btn-logout {
-    font-size: var(--fs-xs);
-    padding: var(--sp-2) var(--sp-3);
+    font-size: 0.65rem;
+    padding: 4px 8px;
+    white-space: nowrap;
   }
 
   .pwa-install-btn {
-    font-size: 0.65rem;
-    padding: 2px 6px;
-  }
-}
-
-@media (max-width: 640px) {
-  .auth-card {
-    padding: var(--sp-6);
+    font-size: 0.6rem;
+    padding: 2px 5px;
+    white-space: nowrap;
   }
 
-  .app-content {
-    padding: var(--sp-4);
-  }
-
-  .notes-grid {
-    grid-template-columns: 1fr;
-    gap: var(--sp-4);
-  }
-
-  .note-card {
-    padding: var(--sp-4);
-  }
-
-  .fab {
-    bottom: var(--sp-4);
-    right: var(--sp-4);
-    width: 52px;
-    height: 52px;
-    font-size: 1.5rem;
-  }
-
-  .modal-card {
-    padding: var(--sp-6);
-  }
-
-  .notes-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--sp-3);
-    margin-bottom: var(--sp-4);
-  }
-
-  .notes-header h2 {
-    font-size: var(--fs-lg);
-  }
-
-  .modal-row {
-    flex-direction: column;
-  }
-
+  /* ── Toolbar ── */
   .toolbar {
+    padding: var(--sp-3) var(--sp-4);
+    gap: var(--sp-3);
     flex-direction: column;
-    gap: var(--sp-2);
   }
 
   .search-box {
@@ -1259,6 +1217,90 @@ body::before {
 
   .tag-filter-bar {
     padding: 0 var(--sp-4) var(--sp-3);
+  }
+}
+
+@media (max-width: 640px) {
+  .auth-card {
+    padding: var(--sp-6);
+  }
+
+  .app-content {
+    padding: var(--sp-4) var(--sp-3);
+  }
+
+  /* ── Notes grid ── */
+  .notes-grid {
+    grid-template-columns: 1fr;
+    gap: var(--sp-3);
+  }
+
+  .note-card {
+    padding: var(--sp-4);
+  }
+
+  .note-card .note-title {
+    font-size: var(--fs-base);
+  }
+
+  .note-card .note-content-preview {
+    font-size: var(--fs-xs);
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    margin-bottom: var(--sp-3);
+  }
+
+  .note-card .note-meta {
+    padding-top: var(--sp-2);
+  }
+
+  .note-card .note-date {
+    font-size: 0.65rem;
+  }
+
+  .note-card .note-actions {
+    gap: var(--sp-1);
+  }
+
+  .note-card .note-actions .btn-sm {
+    padding: 4px 6px;
+    font-size: 0.7rem;
+  }
+
+  /* ── FAB ── */
+  .fab {
+    bottom: var(--sp-4);
+    right: var(--sp-4);
+    width: 48px;
+    height: 48px;
+    font-size: 1.4rem;
+  }
+
+  /* ── Modal ── */
+  .modal-card {
+    padding: var(--sp-5);
+    margin: var(--sp-3);
+    max-height: calc(100vh - var(--sp-6));
+  }
+
+  .modal-card h2 {
+    font-size: var(--fs-lg);
+  }
+
+  /* ── Notes header ── */
+  .notes-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--sp-3);
+    margin-bottom: var(--sp-4);
+  }
+
+  .notes-header h2 {
+    font-size: var(--fs-lg);
+  }
+
+  .modal-row {
+    flex-direction: column;
   }
 }
 
