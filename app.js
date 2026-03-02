@@ -1,15 +1,21 @@
 /**
  * ============================================================
- * Secure Notes v2 — Application Logic
+ * Secure Notes v3 — Offline-First with IndexedDB Sync
  * ============================================================
  *
  * Modules:
- *   SupabaseService  → Supabase client singleton
- *   AuthService      → sign-up, sign-in, sign-out, session
- *   NotesService     → CRUD for notes (RLS enforced server-side)
- *   FoldersService   → CRUD for folders (RLS enforced server-side)
- *   MarkdownService  → markdown → HTML via marked.js
- *   UIController     → DOM, rendering, search, sort, tags, folders, auto-save
+ *   SupabaseService   → Supabase client singleton
+ *   AuthService       → sign-up, sign-in, sign-out, session
+ *   NotesService      → Remote CRUD via Supabase (used by SyncEngine only)
+ *   FoldersService    → Remote CRUD for folders (online-only)
+ *   IndexedDBService  → Local IndexedDB cache & write buffer for notes
+ *   SyncEngine        → Push dirty/deleted notes, pull remote, last-write-wins
+ *   MarkdownService   → markdown → HTML via marked.js
+ *   UIController      → DOM, rendering, search, sort, tags, folders, auto-save
+ *
+ * Data flow:
+ *   UI → IndexedDB (immediate) → SyncEngine (async) → Supabase
+ *   The UI NEVER reads directly from Supabase for notes.
  * ============================================================
  */
 
@@ -74,7 +80,7 @@ const AuthService = (() => {
 })();
 
 /* ──────────────────────────────────────────────
-   FoldersService
+   FoldersService (online-only, unchanged)
    ────────────────────────────────────────────── */
 const FoldersService = (() => {
   const _c = () => SupabaseService.getClient();
@@ -113,7 +119,8 @@ const FoldersService = (() => {
 })();
 
 /* ──────────────────────────────────────────────
-   NotesService
+   NotesService — Remote API (Supabase)
+   Used ONLY by SyncEngine. UI never calls these directly.
    ────────────────────────────────────────────── */
 const NotesService = (() => {
   const _c = () => SupabaseService.getClient();
@@ -125,18 +132,23 @@ const NotesService = (() => {
     return { data: data ?? [], error };
   }
 
-  async function createNote(title, content, { is_pinned = false, tags = [], folder_id = null } = {}) {
-    const { data: { session } } = await _c().auth.getSession();
+  async function createNote(note) {
     const { data, error } = await _c()
       .from('notes')
-      .insert([{ title, content, is_pinned, tags, folder_id: folder_id || null, user_id: session.user.id }])
+      .insert([{
+        title: note.title,
+        content: note.content,
+        is_pinned: note.is_pinned || false,
+        tags: note.tags || [],
+        folder_id: note.folder_id || null,
+        user_id: note.user_id,
+      }])
       .select();
     if (error) console.error('[NotesService] createNote:', error.message);
     return { data, error };
   }
 
   async function updateNote(id, fields) {
-    fields.updated_at = new Date().toISOString();
     if (fields.folder_id === '') fields.folder_id = null;
     const { data, error } = await _c()
       .from('notes').update(fields).eq('id', id).select();
@@ -151,6 +163,393 @@ const NotesService = (() => {
   }
 
   return { fetchNotes, createNote, updateNote, deleteNote };
+})();
+
+/* ──────────────────────────────────────────────
+   IndexedDBService — Local cache & write buffer
+   ──────────────────────────────────────────────
+   Object stores:
+     notes — mirrors Supabase notes + local metadata:
+       _dirty   (bool)  changes not yet pushed to server
+       _deleted (bool)  tombstone; hidden from UI, pending server delete
+       _local   (bool)  created offline, no server-side ID yet
+     meta  — key/value for sync state (e.g. last_synced_at)
+   ────────────────────────────────────────────── */
+const IndexedDBService = (() => {
+  const DB_NAME = 'secure_notes_offline';
+  const DB_VERSION = 1;
+  let db = null;
+
+  /** Open (or create) the IndexedDB database */
+  function open() {
+    return new Promise((resolve, reject) => {
+      if (db) { resolve(db); return; }
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+
+      req.onupgradeneeded = (e) => {
+        const _db = e.target.result;
+        // Notes store — keyed by 'id' (uuid from Supabase or temp local id)
+        if (!_db.objectStoreNames.contains('notes')) {
+          _db.createObjectStore('notes', { keyPath: 'id' });
+        }
+        // Meta store — key/value pairs
+        if (!_db.objectStoreNames.contains('meta')) {
+          _db.createObjectStore('meta', { keyPath: 'key' });
+        }
+      };
+
+      req.onsuccess = (e) => {
+        db = e.target.result;
+        console.log('[IDB] Database opened');
+        resolve(db);
+      };
+
+      req.onerror = (e) => {
+        console.error('[IDB] Open failed:', e.target.error);
+        reject(e.target.error);
+      };
+    });
+  }
+
+  /** Generic helper: run a transaction and return a promise */
+  function _tx(storeName, mode, callback) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, mode);
+      const store = tx.objectStore(storeName);
+      const result = callback(store);
+      tx.oncomplete = () => resolve(result._result ?? result);
+      tx.onerror = (e) => reject(e.target.error);
+    });
+  }
+
+  /** Get all notes that are NOT tombstoned (visible to UI) */
+  async function getAllNotes() {
+    await open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('notes', 'readonly');
+      const store = tx.objectStore('notes');
+      const req = store.getAll();
+      req.onsuccess = () => {
+        // Filter out tombstoned (deleted) notes — UI should never see them
+        resolve(req.result.filter(n => !n._deleted));
+      };
+      req.onerror = (e) => reject(e.target.error);
+    });
+  }
+
+  /** Get ALL notes including tombstones (for sync) */
+  async function getAllNotesRaw() {
+    await open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('notes', 'readonly');
+      const store = tx.objectStore('notes');
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = (e) => reject(e.target.error);
+    });
+  }
+
+  /** Get a single note by id */
+  async function getNote(id) {
+    await open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('notes', 'readonly');
+      const req = tx.objectStore('notes').get(id);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = (e) => reject(e.target.error);
+    });
+  }
+
+  /** Upsert a note (create or update). Marks as dirty for sync. */
+  async function putNote(note) {
+    await open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('notes', 'readwrite');
+      tx.objectStore('notes').put(note);
+      tx.oncomplete = () => resolve();
+      tx.onerror = (e) => reject(e.target.error);
+    });
+  }
+
+  /** Tombstone a note — mark as deleted but keep for sync */
+  async function markDeleted(id) {
+    const note = await getNote(id);
+    if (!note) return;
+    note._deleted = true;
+    note._dirty = true;
+    note.updated_at = new Date().toISOString();
+    await putNote(note);
+  }
+
+  /** Physically remove from IDB (after server confirms delete) */
+  async function removeNote(id) {
+    await open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('notes', 'readwrite');
+      tx.objectStore('notes').delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = (e) => reject(e.target.error);
+    });
+  }
+
+  /** Get notes that need sync (dirty or deleted) */
+  async function getDirtyNotes() {
+    const all = await getAllNotesRaw();
+    return all.filter(n => n._dirty && !n._deleted);
+  }
+
+  async function getDeletedNotes() {
+    const all = await getAllNotesRaw();
+    return all.filter(n => n._deleted);
+  }
+
+  /** Bulk replace all notes in IDB (used after full pull) */
+  async function bulkPut(notes) {
+    await open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('notes', 'readwrite');
+      const store = tx.objectStore('notes');
+      notes.forEach(n => store.put(n));
+      tx.oncomplete = () => resolve();
+      tx.onerror = (e) => reject(e.target.error);
+    });
+  }
+
+  /** Meta helpers */
+  async function getMeta(key) {
+    await open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('meta', 'readonly');
+      const req = tx.objectStore('meta').get(key);
+      req.onsuccess = () => resolve(req.result?.value ?? null);
+      req.onerror = (e) => reject(e.target.error);
+    });
+  }
+
+  async function setMeta(key, value) {
+    await open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('meta', 'readwrite');
+      tx.objectStore('meta').put({ key, value });
+      tx.oncomplete = () => resolve();
+      tx.onerror = (e) => reject(e.target.error);
+    });
+  }
+
+  /** Clear all notes from IDB (e.g. on logout) */
+  async function clearAll() {
+    await open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['notes', 'meta'], 'readwrite');
+      tx.objectStore('notes').clear();
+      tx.objectStore('meta').clear();
+      tx.oncomplete = () => { console.log('[IDB] Cleared'); resolve(); };
+      tx.onerror = (e) => reject(e.target.error);
+    });
+  }
+
+  return {
+    open, getAllNotes, getAllNotesRaw, getNote, putNote,
+    markDeleted, removeNote, getDirtyNotes, getDeletedNotes,
+    bulkPut, getMeta, setMeta, clearAll,
+  };
+})();
+
+/* ──────────────────────────────────────────────
+   SyncEngine — Bidirectional sync with last-write-wins
+   ──────────────────────────────────────────────
+   1. Push dirty (modified offline) notes → Supabase
+   2. Push deleted (tombstoned) notes → Supabase
+   3. Pull all remote notes → merge with IDB using last-write-wins
+   4. Clean up: remove local notes deleted on server
+   ────────────────────────────────────────────── */
+const SyncEngine = (() => {
+  let syncing = false;      // Prevent concurrent syncs
+  let userId = null;        // Set after auth
+  let onSyncStatusChange = null;  // Callback for UI
+
+  function setUserId(id) { userId = id; }
+  function setStatusCallback(cb) { onSyncStatusChange = cb; }
+
+  function _status(state, msg) {
+    if (onSyncStatusChange) onSyncStatusChange(state, msg);
+  }
+
+  /**
+   * Main sync function. Safe to call repeatedly — it's idempotent
+   * and prevents concurrent runs.
+   */
+  async function sync() {
+    if (syncing) { console.log('[Sync] Already in progress, skipping'); return; }
+    if (!navigator.onLine) { _status('offline', 'Offline'); return; }
+    if (!userId) { console.log('[Sync] No user, skipping'); return; }
+
+    syncing = true;
+    _status('syncing', 'Syncing…');
+    console.log('[Sync] Starting sync');
+
+    try {
+      await pushDirtyNotes();
+      await pushDeletedNotes();
+      await pullRemoteNotes();
+      await IndexedDBService.setMeta('last_synced_at', new Date().toISOString());
+      _status('synced', 'Synced ✓');
+      console.log('[Sync] Complete');
+    } catch (err) {
+      console.error('[Sync] Error:', err);
+      _status('error', 'Sync failed');
+    } finally {
+      syncing = false;
+    }
+  }
+
+  /**
+   * Push locally modified notes to Supabase.
+   * For notes created offline (_local=true), we INSERT then update the local ID.
+   * For existing notes, we UPDATE.
+   */
+  async function pushDirtyNotes() {
+    const dirty = await IndexedDBService.getDirtyNotes();
+    console.log(`[Sync] Pushing ${dirty.length} dirty notes`);
+
+    for (const note of dirty) {
+      try {
+        if (note._local) {
+          // Created offline — insert into Supabase
+          const { data, error } = await NotesService.createNote({
+            title: note.title,
+            content: note.content,
+            is_pinned: note.is_pinned,
+            tags: note.tags,
+            folder_id: note.folder_id,
+            user_id: userId,
+          });
+
+          if (error) { console.error('[Sync] Push create failed:', error.message); continue; }
+
+          // Server assigned a real ID — replace the temp local note
+          const serverNote = data[0];
+          await IndexedDBService.removeNote(note.id); // remove temp
+          await IndexedDBService.putNote({
+            ...serverNote,
+            _dirty: false,
+            _deleted: false,
+            _local: false,
+          });
+        } else {
+          // Existing note — update on server
+          const { error } = await NotesService.updateNote(note.id, {
+            title: note.title,
+            content: note.content,
+            is_pinned: note.is_pinned,
+            tags: note.tags,
+            folder_id: note.folder_id || null,
+            updated_at: note.updated_at,
+          });
+
+          if (error) { console.error('[Sync] Push update failed:', error.message); continue; }
+
+          // Mark as synced in IDB
+          note._dirty = false;
+          await IndexedDBService.putNote(note);
+        }
+      } catch (err) {
+        console.error('[Sync] Push error for note', note.id, err);
+      }
+    }
+  }
+
+  /**
+   * Push tombstoned notes — delete from server, then remove from IDB.
+   */
+  async function pushDeletedNotes() {
+    const deleted = await IndexedDBService.getDeletedNotes();
+    console.log(`[Sync] Pushing ${deleted.length} deleted notes`);
+
+    for (const note of deleted) {
+      try {
+        // If note was created offline and never synced, just remove locally
+        if (note._local) {
+          await IndexedDBService.removeNote(note.id);
+          continue;
+        }
+
+        const { error } = await NotesService.deleteNote(note.id);
+        if (error) {
+          // If 404 / not found, the note is already gone from server — safe to remove locally
+          console.error('[Sync] Push delete failed:', error.message);
+        }
+        // Remove tombstone from IDB regardless (idempotent)
+        await IndexedDBService.removeNote(note.id);
+      } catch (err) {
+        console.error('[Sync] Delete error for note', note.id, err);
+      }
+    }
+  }
+
+  /**
+   * Pull all notes from Supabase and merge with local state.
+   * Conflict resolution: LAST-WRITE-WINS based on updated_at.
+   *   - If remote is newer AND local is not dirty → overwrite local
+   *   - If local is dirty (offline edits) → keep local, push will handle it
+   *   - Notes on server but not locally → add to IDB
+   *   - Notes locally (synced, not dirty) but not on server → deleted remotely → remove from IDB
+   */
+  async function pullRemoteNotes() {
+    const { data: remoteNotes, error } = await NotesService.fetchNotes();
+    if (error) { console.error('[Sync] Pull failed:', error.message); return; }
+
+    const localNotes = await IndexedDBService.getAllNotesRaw();
+    const localMap = new Map(localNotes.map(n => [n.id, n]));
+    const remoteIds = new Set(remoteNotes.map(n => n.id));
+
+    console.log(`[Sync] Pull: ${remoteNotes.length} remote, ${localNotes.length} local`);
+
+    // Merge remote into local
+    for (const remote of remoteNotes) {
+      const local = localMap.get(remote.id);
+
+      if (!local) {
+        // New note from server — add to IDB
+        await IndexedDBService.putNote({
+          ...remote,
+          _dirty: false,
+          _deleted: false,
+          _local: false,
+        });
+      } else if (local._dirty) {
+        // Local has unsaved changes — keep local version
+        // (it will be pushed on next sync; last-write-wins means our
+        //  newer timestamp will prevail when we push)
+        console.log(`[Sync] Keeping dirty local note: ${local.id}`);
+      } else {
+        // Both exist, local is clean — take the newer one
+        const remoteTime = new Date(remote.updated_at).getTime();
+        const localTime = new Date(local.updated_at).getTime();
+        if (remoteTime > localTime) {
+          // Remote is newer — overwrite local
+          await IndexedDBService.putNote({
+            ...remote,
+            _dirty: false,
+            _deleted: false,
+            _local: false,
+          });
+        }
+        // If local is same or newer but not dirty, it's already synced — no action
+      }
+    }
+
+    // Remove local notes that were deleted on the server
+    // Only remove if: note is synced (not _local), not dirty, and not already tombstoned
+    for (const local of localNotes) {
+      if (!local._local && !local._dirty && !local._deleted && !remoteIds.has(local.id)) {
+        console.log(`[Sync] Removing locally — deleted on server: ${local.id}`);
+        await IndexedDBService.removeNote(local.id);
+      }
+    }
+  }
+
+  return { sync, setUserId, setStatusCallback };
 })();
 
 /* ──────────────────────────────────────────────
@@ -186,7 +585,6 @@ const MarkdownService = (() => {
    Helpers
    ────────────────────────────────────────────── */
 
-/** Return a human-friendly relative time string */
 function relativeTime(dateStr) {
   const now = Date.now();
   const then = new Date(dateStr).getTime();
@@ -203,10 +601,14 @@ function relativeTime(dateStr) {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-/** Debounce helper */
 function debounce(fn, ms) {
   let t;
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+/** Generate a temporary local UUID for notes created offline */
+function generateLocalId() {
+  return 'local_' + crypto.randomUUID();
 }
 
 /* ──────────────────────────────────────────────
@@ -259,25 +661,29 @@ const UIController = (() => {
   const folderColorPicker = $('#folder-color-picker');
   const folderCancelBtn = $('#folder-cancel-btn');
   const pwaInstallBtn = $('#pwa-install-btn');
+  const syncStatusEl = $('#sync-status');
   const toastEl = $('#toast');
 
   // State
   let isSignUp = false;
   let editingNoteId = null;
   let toastTimeout = null;
-  let allNotes = [];
+  let allNotes = [];   // loaded from IndexedDB
   let allFolders = [];
-  let currentTags = [];         // tags in the modal input
-  let activeFolder = 'all';      // filter
-  let activeTagFilter = null;       // filter by tag
+  let currentTags = [];
+  let activeFolder = 'all';
+  let activeTagFilter = null;
   let searchQuery = '';
   let editingFolderId = null;
   let selectedFolderColor = '#6c63ff';
   let deferredPWAPrompt = null;
+  let currentUserId = null;
 
   // Auto-save
-  let autoSaveTimer = null;
   let lastSavedData = null;
+
+  // Periodic sync timer
+  let periodicSyncTimer = null;
 
   // ── Init ──
   function init() {
@@ -286,6 +692,16 @@ const UIController = (() => {
     restoreSession();
     listenAuthChanges();
     registerServiceWorker();
+    listenNetworkChanges();
+
+    // Wire up SyncEngine status callback to update UI
+    SyncEngine.setStatusCallback(updateSyncStatus);
+  }
+
+  /** Update the sync status pill in the top bar */
+  function updateSyncStatus(state, msg) {
+    syncStatusEl.textContent = msg;
+    syncStatusEl.className = 'sync-status ' + state;
   }
 
   function bindEvents() {
@@ -305,7 +721,7 @@ const UIController = (() => {
     tagInput.addEventListener('keydown', handleTagKeydown);
     tagInputWrapper.addEventListener('click', () => tagInput.focus());
 
-    // Auto-save — debounced
+    // Auto-save — debounced (writes to IndexedDB)
     const triggerAutoSave = debounce(() => autoSave(), 1500);
     noteTitleInput.addEventListener('input', triggerAutoSave);
     noteContentInput.addEventListener('input', triggerAutoSave);
@@ -351,6 +767,41 @@ const UIController = (() => {
     });
   }
 
+  // ── Network status ──
+  function listenNetworkChanges() {
+    window.addEventListener('online', () => {
+      console.log('[Network] Back online — triggering sync');
+      updateSyncStatus('syncing', 'Syncing…');
+      SyncEngine.sync().then(() => reloadNotesFromIDB());
+    });
+    window.addEventListener('offline', () => {
+      console.log('[Network] Went offline');
+      updateSyncStatus('offline', 'Offline');
+    });
+
+    // Set initial network status
+    if (!navigator.onLine) {
+      updateSyncStatus('offline', 'Offline');
+    }
+  }
+
+  function startPeriodicSync() {
+    stopPeriodicSync();
+    // Sync every 60 seconds while online
+    periodicSyncTimer = setInterval(() => {
+      if (navigator.onLine) {
+        SyncEngine.sync().then(() => reloadNotesFromIDB());
+      }
+    }, 60000);
+  }
+
+  function stopPeriodicSync() {
+    if (periodicSyncTimer) {
+      clearInterval(periodicSyncTimer);
+      periodicSyncTimer = null;
+    }
+  }
+
   // ── Auth ──
   function toggleAuthMode() {
     isSignUp = !isSignUp;
@@ -380,6 +831,9 @@ const UIController = (() => {
   }
 
   async function handleLogout() {
+    stopPeriodicSync();
+    // Clear local IDB on logout (user data shouldn't persist)
+    await IndexedDBService.clearAll();
     const { error } = await AuthService.signOut();
     if (error) showToast('Logout failed: ' + error.message, 'error');
   }
@@ -403,38 +857,56 @@ const UIController = (() => {
     authForm.reset();
   }
 
-  function showApp(user) {
+  async function showApp(user) {
     authSection.classList.add('hidden');
     appSection.classList.remove('hidden');
     userEmailEl.textContent = user.email;
-    loadData();
+    currentUserId = user.id;
+    SyncEngine.setUserId(user.id);
+
+    // 1. Open IndexedDB
+    await IndexedDBService.open();
+
+    // 2. Load from IDB immediately (fast, works offline)
+    await reloadNotesFromIDB();
+
+    // 3. Load folders (online-only, graceful fallback)
+    await loadFolders();
+
+    // 4. If online, sync in background then refresh UI
+    if (navigator.onLine) {
+      SyncEngine.sync().then(() => reloadNotesFromIDB());
+    } else {
+      updateSyncStatus('offline', 'Offline');
+    }
+
+    // 5. Start periodic sync
+    startPeriodicSync();
   }
 
   // ── Data loading ──
-  async function loadData() {
-    await Promise.all([loadFolders(), loadNotes()]);
-  }
-
-  async function loadFolders() {
-    const { data } = await FoldersService.fetchFolders();
-    allFolders = data;
-    renderFolders();
-    populateFolderSelects();
-  }
-
-  async function loadNotes() {
-    notesGrid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:2rem"><span class="spinner"></span></div>';
-    const { data, error } = await NotesService.fetchNotes();
-    if (error) { showToast('Failed to load notes', 'error'); notesGrid.innerHTML = ''; return; }
-    allNotes = data;
+  /** Reload notes from IndexedDB and refresh the UI */
+  async function reloadNotesFromIDB() {
+    allNotes = await IndexedDBService.getAllNotes();
     collectAllTags();
     renderFilteredNotes();
     updateFolderCounts();
   }
 
-  // ── Folders rendering ──
+  async function loadFolders() {
+    try {
+      const { data } = await FoldersService.fetchFolders();
+      allFolders = data;
+    } catch (e) {
+      console.warn('[UIController] Folders fetch failed (probably offline):', e);
+      // Keep existing folders in memory
+    }
+    renderFolders();
+    populateFolderSelects();
+  }
+
+  // ── Folders rendering (unchanged) ──
   function renderFolders() {
-    // Keep the "All Notes" item, remove the rest
     const allItem = folderList.querySelector('[data-folder-id="all"]');
     folderList.innerHTML = '';
     folderList.appendChild(allItem);
@@ -462,12 +934,16 @@ const UIController = (() => {
         if (error) { showToast('Delete failed', 'error'); return; }
         if (activeFolder === f.id) setActiveFolder('all', 'My Notes');
         showToast('Folder deleted', 'success');
-        await loadData();
+        await loadFolders();
+        // Reload notes since folder_id references may have changed
+        if (navigator.onLine) {
+          await SyncEngine.sync();
+          await reloadNotesFromIDB();
+        }
       });
       folderList.appendChild(li);
     });
 
-    // Rebind "All Notes" click
     allItem.onclick = () => setActiveFolder('all', 'My Notes');
     if (activeFolder === 'all') allItem.classList.add('active');
     else allItem.classList.remove('active');
@@ -480,7 +956,6 @@ const UIController = (() => {
       i.classList.toggle('active', i.dataset.folderId === String(id));
     });
     renderFilteredNotes();
-    // Close sidebar on mobile
     if (window.innerWidth <= 768) closeSidebar();
   }
 
@@ -578,17 +1053,12 @@ const UIController = (() => {
   function getFilteredNotes() {
     let notes = [...allNotes];
 
-    // Folder filter
     if (activeFolder !== 'all') {
       notes = notes.filter(n => n.folder_id === activeFolder);
     }
-
-    // Tag filter
     if (activeTagFilter) {
       notes = notes.filter(n => (n.tags || []).includes(activeTagFilter));
     }
-
-    // Search
     if (searchQuery) {
       notes = notes.filter(n =>
         (n.title || '').toLowerCase().includes(searchQuery) ||
@@ -597,10 +1067,8 @@ const UIController = (() => {
       );
     }
 
-    // Sort
     const sort = sortSelect.value;
     notes.sort((a, b) => {
-      // Pinned always first
       if (a.is_pinned && !b.is_pinned) return -1;
       if (!a.is_pinned && b.is_pinned) return 1;
       switch (sort) {
@@ -640,6 +1108,8 @@ const UIController = (() => {
     const time = relativeTime(note.updated_at || note.created_at);
     const folder = allFolders.find(f => f.id === note.folder_id);
     const pinnedClass = note.is_pinned ? ' pinned' : '';
+    // Show a yellow dot on unsynced cards
+    const unsyncedClass = note._dirty ? ' unsynced' : '';
     const pinBadge = note.is_pinned ? '<span class="pin-badge">📌</span>' : '';
 
     const folderBadge = folder
@@ -653,7 +1123,7 @@ const UIController = (() => {
     const contentHTML = MarkdownService.render(note.content || '');
 
     return `
-      <div class="note-card${pinnedClass}" data-id="${note.id}" style="animation-delay:${index * 0.05}s">
+      <div class="note-card${pinnedClass}${unsyncedClass}" data-id="${note.id}" style="animation-delay:${index * 0.05}s">
         ${pinBadge}
         <div class="note-title">${MarkdownService.escapeHTML(note.title || 'Untitled')}</div>
         ${folderBadge}
@@ -685,20 +1155,25 @@ const UIController = (() => {
         if (note) openNoteModal(note);
       });
 
+      // Pin — write to IndexedDB, trigger sync
       card.querySelector('.btn-pin').addEventListener('click', async (e) => {
         e.stopPropagation();
-        const { error } = await NotesService.updateNote(id, { is_pinned: !note.is_pinned });
-        if (error) { showToast('Pin failed', 'error'); return; }
-        await loadNotes();
+        const updated = { ...note, is_pinned: !note.is_pinned, _dirty: true, updated_at: new Date().toISOString() };
+        await IndexedDBService.putNote(updated);
+        await reloadNotesFromIDB();
+        // Async sync — don't block UI
+        if (navigator.onLine) SyncEngine.sync().then(() => reloadNotesFromIDB());
       });
 
+      // Delete — tombstone in IndexedDB, trigger sync
       card.querySelector('.btn-delete').addEventListener('click', async (e) => {
         e.stopPropagation();
         if (!confirm('Delete this note?')) return;
-        const { error } = await NotesService.deleteNote(id);
-        if (error) { showToast('Delete failed', 'error'); return; }
+        await IndexedDBService.markDeleted(id);
         showToast('Note deleted', 'success');
-        await loadNotes();
+        await reloadNotesFromIDB();
+        // Async sync
+        if (navigator.onLine) SyncEngine.sync().then(() => reloadNotesFromIDB());
       });
     });
   }
@@ -716,8 +1191,6 @@ const UIController = (() => {
 
     lastSavedData = note ? { title: note.title, content: note.content } : null;
     autosaveStatus.classList.add('hidden');
-
-    // Show auto-save indicator only when editing
     if (note) autosaveStatus.classList.remove('hidden');
 
     noteModal.classList.add('active');
@@ -730,10 +1203,13 @@ const UIController = (() => {
     currentTags = [];
     renderModalTags();
     editingNoteId = null;
-    clearTimeout(autoSaveTimer);
     autosaveStatus.classList.add('hidden');
   }
 
+  /**
+   * Handle save button — writes to IndexedDB, then triggers async sync.
+   * Works fully offline.
+   */
   async function handleNoteSave(e) {
     e.preventDefault();
     const title = noteTitleInput.value.trim();
@@ -744,66 +1220,97 @@ const UIController = (() => {
     saveBtn.disabled = true;
     saveBtn.innerHTML = '<span class="spinner"></span>';
 
-    const fields = {
-      title, content,
-      is_pinned: notePinInput.checked,
-      tags: currentTags,
-      folder_id: noteFolderSelect.value || null,
-    };
+    const now = new Date().toISOString();
 
-    let result;
     if (editingNoteId) {
-      result = await NotesService.updateNote(editingNoteId, fields);
+      // Update existing note in IndexedDB
+      const existing = await IndexedDBService.getNote(editingNoteId);
+      const updated = {
+        ...existing,
+        title, content,
+        is_pinned: notePinInput.checked,
+        tags: currentTags,
+        folder_id: noteFolderSelect.value || null,
+        updated_at: now,
+        _dirty: true,
+      };
+      await IndexedDBService.putNote(updated);
     } else {
-      result = await NotesService.createNote(title, content, fields);
+      // Create new note in IndexedDB with a temporary local ID
+      const newNote = {
+        id: generateLocalId(),
+        user_id: currentUserId,
+        title, content,
+        is_pinned: notePinInput.checked,
+        tags: currentTags,
+        folder_id: noteFolderSelect.value || null,
+        created_at: now,
+        updated_at: now,
+        _dirty: true,
+        _deleted: false,
+        _local: true,   // Mark as locally-created (no server ID yet)
+      };
+      await IndexedDBService.putNote(newNote);
     }
 
     saveBtn.disabled = false;
     saveBtn.textContent = 'Save';
 
-    if (result.error) { showToast(result.error.message, 'error'); return; }
-
     showToast(editingNoteId ? 'Note updated' : 'Note created', 'success');
     closeNoteModal();
-    await loadNotes();
-    updateFolderCounts();
+    await reloadNotesFromIDB();
+
+    // Async sync — don't block UI
+    if (navigator.onLine) SyncEngine.sync().then(() => reloadNotesFromIDB());
   }
 
-  // ── Auto-save ──
+  // ── Auto-save (writes to IndexedDB, not Supabase) ──
   async function autoSave() {
-    if (!editingNoteId) return; // only auto-save on existing notes
+    if (!editingNoteId) return;
     const title = noteTitleInput.value.trim();
     const content = noteContentInput.value.trim();
     if (!title) return;
 
-    // Check if data actually changed
     if (lastSavedData && lastSavedData.title === title && lastSavedData.content === content) return;
 
     autosaveStatus.textContent = 'Saving…';
     autosaveStatus.className = 'autosave-status saving';
     autosaveStatus.classList.remove('hidden');
 
-    const { error } = await NotesService.updateNote(editingNoteId, {
-      title, content,
-      is_pinned: notePinInput.checked,
-      tags: currentTags,
-      folder_id: noteFolderSelect.value || null,
-    });
+    try {
+      const existing = await IndexedDBService.getNote(editingNoteId);
+      if (!existing) return;
 
-    if (error) {
-      autosaveStatus.textContent = 'Save failed';
-      autosaveStatus.className = 'autosave-status error';
-    } else {
-      autosaveStatus.textContent = 'Saved ✓';
+      const updated = {
+        ...existing,
+        title, content,
+        is_pinned: notePinInput.checked,
+        tags: currentTags,
+        folder_id: noteFolderSelect.value || null,
+        updated_at: new Date().toISOString(),
+        _dirty: true,
+      };
+      await IndexedDBService.putNote(updated);
+
+      autosaveStatus.textContent = 'Saved locally ✓';
       autosaveStatus.className = 'autosave-status saved';
       lastSavedData = { title, content };
-      // Refresh notes data silently
-      const { data } = await NotesService.fetchNotes();
-      if (data) { allNotes = data; collectAllTags(); updateFolderCounts(); }
+
+      // Refresh the note list silently
+      allNotes = await IndexedDBService.getAllNotes();
+      collectAllTags();
+      updateFolderCounts();
+
+      // Trigger async sync
+      if (navigator.onLine) SyncEngine.sync().then(() => reloadNotesFromIDB());
+    } catch (err) {
+      autosaveStatus.textContent = 'Save failed';
+      autosaveStatus.className = 'autosave-status error';
+      console.error('[AutoSave] Error:', err);
     }
   }
 
-  // ── Folder modal ──
+  // ── Folder modal (unchanged, online-only) ──
   function openFolderModal(folder = null) {
     editingFolderId = folder ? folder.id : null;
     folderModalTitle.textContent = folder ? 'Edit Folder' : 'New Folder';
