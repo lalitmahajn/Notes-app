@@ -1236,14 +1236,38 @@ body::before {
   display: flex;
   gap: var(--sp-3);
   margin-top: var(--sp-5);
-  padding-top: var(--sp-4);
+  padding-top: var(--sp-3);
   border-top: 1px solid var(--border);
+  justify-content: flex-end;
 }
 
 .view-note-actions .btn {
   display: inline-flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: var(--sp-1);
+  font-size: var(--fs-xs);
+  padding: var(--sp-1) var(--sp-3);
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.view-note-actions .btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.view-note-actions .btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.view-note-actions .btn-danger:hover {
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 /* ============================================================
