@@ -26,6 +26,7 @@ A **secure, offline-first notes application** built with vanilla HTML/CSS/JS and
 - **📴 Offline-First** — Full offline support via IndexedDB + background sync
 - **📱 PWA** — Installable as a native-like app
 - **🎨 Dark UI** — Glassmorphic dark theme, responsive on all devices
+- **📱 Mobile Friendly** — Fully responsive UI optimized for mobile, tablet, and desktop
 
 ---
 
