@@ -121,7 +121,12 @@ SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
 SUPABASE_ANON_KEY=YOUR_ANON_PUBLIC_KEY
 ```
 
-Paste those values into `app.js` (replace `__SUPABASE_URL__` and `__SUPABASE_ANON_KEY__`) for local development.
+Or create a `config.local.js` file (gitignored) to override credentials locally:
+
+```js
+window.SUPABASE_URL = 'https://YOUR_PROJECT_REF.supabase.co';
+window.SUPABASE_ANON = 'YOUR_ANON_PUBLIC_KEY';
+```
 
 ### 4. Run Locally
 
@@ -165,16 +170,31 @@ The repo includes a GitHub Actions workflow that injects credentials from **GitH
 ## 📁 Project Structure
 
 ```
-├── index.html            # App shell (auth, sidebar, modals)
-├── style.css             # Design system & responsive styles
-├── app.js                # Application logic (8 decoupled modules)
-├── manifest.json         # PWA manifest
-├── sw.js                 # Service worker (offline caching)
-├── icons/                # PWA icons
-├── .env                  # Local credentials (gitignored)
+├── index.html                  # App shell (auth, sidebar, modals)
+├── style.css                   # Design system & responsive styles
+├── config.local.js             # Local Supabase credentials (gitignored)
+├── app/                        # Application logic (modular)
+│   ├── config.js               #   Supabase URL/key constants
+│   ├── services/
+│   │   ├── supabase.js         #   Supabase client singleton
+│   │   ├── auth.js             #   Authentication (sign-up/in/out)
+│   │   ├── folders.js          #   Folder CRUD (online-only)
+│   │   ├── notes.js            #   Notes remote API
+│   │   ├── indexeddb.js        #   Local cache & write buffer
+│   │   ├── sync.js             #   Bidirectional sync engine
+│   │   └── markdown.js         #   Markdown → HTML rendering
+│   ├── utils/
+│   │   └── helpers.js          #   Utility functions
+│   ├── ui/
+│   │   └── controller.js       #   DOM interactions & rendering
+│   └── main.js                 #   Boot entry point
+├── manifest.json               # PWA manifest
+├── sw.js                       # Service worker (offline caching)
+├── icons/                      # PWA icons
+├── .env                        # Credentials for CI/CD (gitignored)
 ├── .gitignore
-├── .github/workflows/    # GitHub Actions CI/CD
-├── LICENSE               # MIT License
+├── .github/workflows/          # GitHub Actions CI/CD
+├── LICENSE                     # MIT License
 └── README.md
 ```
 

@@ -276,7 +276,19 @@
   <!-- App Logic -->
   <!-- Local config override (gitignored, silently skipped if missing) -->
   <script src="config.local.js" onerror="/* not found — using GitHub Actions placeholders */"></script>
-  <script src="app.js"></script>
+
+  <!-- Modular app scripts (load order matters) -->
+  <script src="app/config.js"></script>
+  <script src="app/services/supabase.js"></script>
+  <script src="app/services/auth.js"></script>
+  <script src="app/services/folders.js"></script>
+  <script src="app/services/notes.js"></script>
+  <script src="app/services/indexeddb.js"></script>
+  <script src="app/utils/helpers.js"></script>
+  <script src="app/services/sync.js"></script>
+  <script src="app/services/markdown.js"></script>
+  <script src="app/ui/controller.js"></script>
+  <script src="app/main.js"></script>
 </body>
 
 </html>

@@ -7,17 +7,27 @@
  *   - On new SW version: skipWaiting + claim → instant takeover
  */
 
-const CACHE_NAME = 'secure-notes-v5';
+const CACHE_NAME = 'secure-notes-v6';
 const STATIC_ASSETS = [
     './',
     './index.html',
     './style.css',
-    './app.js',
     './manifest.json',
     './icons/notes_128px.png',
     './icons/notes_192px.png',
     './icons/notes_256px.png',
     './icons/notes_512px.png',
+    './app/config.js',
+    './app/services/supabase.js',
+    './app/services/auth.js',
+    './app/services/folders.js',
+    './app/services/notes.js',
+    './app/services/indexeddb.js',
+    './app/utils/helpers.js',
+    './app/services/sync.js',
+    './app/services/markdown.js',
+    './app/ui/controller.js',
+    './app/main.js',
 ];
 
 // Install — cache static assets, then activate immediately
