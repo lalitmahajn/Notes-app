@@ -1,11 +1,13 @@
 # 📝 Secure Notes
 
 [![Deploy to GitHub Pages](https://github.com/lalitmahajn/Notes-app/actions/workflows/deploy.yml/badge.svg)](https://github.com/lalitmahajn/Notes-app/actions/workflows/deploy.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial-red.svg)](LICENSE)
 
 A **secure, offline-first notes application** built with vanilla HTML/CSS/JS and [Supabase](https://supabase.com). Installable as a **PWA** with full offline support via IndexedDB.
 
 > 🔒 Every note is protected by Row Level Security — users only see their own data.
+> 
+> ⚠️ **Non-Commercial License** — This software may not be used for commercial purposes. See [LICENSE](LICENSE) for details.
 
 ---
 
@@ -214,7 +216,7 @@ Contributions are welcome! Please follow these steps:
 
 ## 📜 License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **PolyForm Noncommercial License 1.0.0** — you may use, modify, and distribute this software for **non-commercial purposes only**. See the [LICENSE](LICENSE) file for details.
 
 ---
 
