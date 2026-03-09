@@ -21,24 +21,10 @@ const UIController = (() => {
     const userEmailEl = $('#user-email');
     const logoutBtn = $('#logout-btn');
     const notesGrid = $('#notes-grid');
-    const notesCount = $('#notes-count');
-    const notesHeading = $('#notes-heading');
-    const newNoteBtn = $('#new-note-btn');
+    // App DOM refs
     const fabBtn = $('#fab-btn');
-    const noteModal = $('#note-modal');
-    const modalTitle = $('#modal-title');
-    const noteForm = $('#note-form');
-    const noteTitleInput = $('#note-title-input');
-    const noteContentInput = $('#note-content-input');
-    const notePinInput = $('#note-pin-input');
-    const noteFolderSelect = $('#note-folder-select');
-    const tagInputWrapper = $('#tag-input-wrapper');
-    const tagInput = $('#tag-input');
-    const modalCancelBtn = $('#modal-cancel-btn');
-    const autosaveStatus = $('#autosave-status');
     const searchInput = $('#search-input');
     const sortSelect = $('#sort-select');
-    const tagFilterBar = $('#tag-filter-bar');
     const sidebar = $('#sidebar');
     const sidebarBackdrop = $('#sidebar-backdrop');
     const sidebarToggle = $('#sidebar-toggle-btn');
@@ -56,15 +42,29 @@ const UIController = (() => {
     const syncBtn = $('#sync-btn');
     const toastEl = $('#toast');
 
-    // View note modal
-    const viewNoteModal = $('#view-note-modal');
-    const viewNoteTitle = $('#view-note-title');
-    const viewNoteMeta = $('#view-note-meta');
-    const viewNoteBody = $('#view-note-body');
-    const viewNoteClose = $('#view-note-close');
-    const viewNoteEditBtn = $('#view-note-edit');
-    const viewNoteDeleteBtn = $('#view-note-delete');
-    let viewingNote = null;
+    // Right Pane (Inline Editor) DOM refs
+    const noteEditorPane = $('#note-editor-pane');
+    const editorEmptyState = $('#editor-empty-state');
+    const editorContentArea = $('#editor-content-area');
+    const editorBackBtn = $('#editor-back-btn');
+
+    const noteForm = $('#note-form');
+    const noteTitleInput = $('#note-title-input');
+    const noteContentInput = $('#note-content-input');
+    const notePreviewPane = $('#note-preview-pane');
+    const editorTagsWrapper = $('#editor-tags-wrapper');
+    const tagInputWrapper = $('#tag-input-wrapper');
+    const tagInput = $('#tag-input');
+    const autosaveStatus = $('#autosave-status');
+
+    // Bottom Bar Buttons
+    const editorPreviewBtn = $('#editor-preview-btn');
+    const editorPinBtn = $('#editor-pin-btn');
+    const editorTagsBtn = $('#editor-tags-btn');
+    const editorDeleteBtn = $('#editor-delete-btn');
+    const editorSaveBtn = $('#editor-save-btn');
+    const editorSyncBtn = $('#editor-sync-btn');
+    const settingsBtn = $('#settings-btn');
 
     // State
     let isSignUp = false;
@@ -72,9 +72,9 @@ const UIController = (() => {
     let toastTimeout = null;
     let allNotes = [];   // loaded from IndexedDB
     let allFolders = [];
+
     let currentTags = [];
     let activeFolder = 'all';
-    let activeTagFilter = null;
     let searchQuery = '';
     let editingFolderId = null;
     let selectedFolderColor = '#0a84ff';
@@ -88,13 +88,13 @@ const UIController = (() => {
     let periodicSyncTimer = null;
 
     // ── Init ──
-    function init() {
+    async function init() {
         SupabaseService.init();
         bindEvents();
-        restoreSession();
-        listenAuthChanges();
-        registerServiceWorker();
         listenNetworkChanges();
+        listenAuthChanges();
+        await restoreSession();
+        registerServiceWorker();
 
         // Wire up SyncEngine status callback to update UI
         SyncEngine.setStatusCallback(updateSyncStatus);
@@ -112,34 +112,92 @@ const UIController = (() => {
         authToggleBtn.addEventListener('click', toggleAuthMode);
         logoutBtn.addEventListener('click', handleLogout);
 
-        // Notes
-        newNoteBtn.addEventListener('click', () => openNoteModal());
-        fabBtn.addEventListener('click', () => openNoteModal());
-        modalCancelBtn.addEventListener('click', closeNoteModal);
-        noteModal.addEventListener('click', (e) => { if (e.target === noteModal) closeNoteModal(); });
+        // Notes (Inline Editor Actions)
+        fabBtn.addEventListener('click', () => openNoteInEditor(null));
         noteForm.addEventListener('submit', handleNoteSave);
 
-        // View modal events
-        viewNoteClose.addEventListener('click', closeViewNote);
-        viewNoteModal.addEventListener('click', (e) => { if (e.target === viewNoteModal) closeViewNote(); });
-        viewNoteEditBtn.addEventListener('click', () => {
-            if (!viewingNote) return;
-            closeViewNote();
-            openNoteModal(viewingNote);
+        // Editor Mobile Back Button
+        editorBackBtn.addEventListener('click', hideEditorMobile);
+
+        // Editor Bottom Bar Actions
+        editorPreviewBtn.addEventListener('click', () => {
+            const isPreview = !notePreviewPane.classList.contains('hidden');
+            if (isPreview) {
+                notePreviewPane.classList.add('hidden');
+                noteContentInput.classList.remove('hidden');
+                editorPreviewBtn.classList.remove('active');
+            } else {
+                notePreviewPane.innerHTML = MarkdownService.render(noteContentInput.value);
+                notePreviewPane.classList.remove('hidden');
+                noteContentInput.classList.add('hidden');
+                editorPreviewBtn.classList.add('active');
+            }
         });
-        viewNoteDeleteBtn.addEventListener('click', async () => {
-            if (!viewingNote) return;
+
+        editorPinBtn.addEventListener('click', async () => {
+            const isActive = editorPinBtn.classList.toggle('active');
+            if (editingNoteId) {
+                const note = allNotes.find(n => n.id === editingNoteId);
+                if (note) {
+                    const updated = { ...note, is_pinned: isActive, _dirty: true, updated_at: new Date().toISOString() };
+                    await IndexedDBService.putNote(updated);
+                    await reloadNotesFromIDB();
+                    if (navigator.onLine) SyncEngine.sync();
+                }
+            }
+        });
+
+        editorTagsBtn.addEventListener('click', () => {
+            editorTagsWrapper.classList.toggle('hidden');
+            if (!editorTagsWrapper.classList.contains('hidden')) {
+                tagInput.focus();
+            }
+        });
+
+        tagInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const val = tagInput.value.trim().toLowerCase();
+                if (val && !currentTags.includes(val)) {
+                    currentTags.push(val);
+                    tagInput.value = '';
+                    renderEditorTags();
+                    if (editingNoteId) handleNoteSave(new Event('submit'));
+                }
+            } else if (e.key === 'Backspace' && !tagInput.value && currentTags.length > 0) {
+                currentTags.pop();
+                renderEditorTags();
+                if (editingNoteId) handleNoteSave(new Event('submit'));
+            }
+        });
+
+        editorDeleteBtn.addEventListener('click', async () => {
+            if (!editingNoteId) return;
             if (!confirm('Delete this note?')) return;
-            await IndexedDBService.markDeleted(viewingNote.id);
-            closeViewNote();
+            const idToDelete = editingNoteId;
+            openNoteInEditor(null); // Clear editor immediately
+            await IndexedDBService.markDeleted(idToDelete);
             showToast('Note deleted', 'success');
             await reloadNotesFromIDB();
             if (navigator.onLine) SyncEngine.sync().then(() => reloadNotesFromIDB());
         });
 
-        // Tags input
-        tagInput.addEventListener('keydown', handleTagKeydown);
-        tagInputWrapper.addEventListener('click', () => tagInput.focus());
+        editorSaveBtn.addEventListener('click', handleNoteSave);
+
+        editorSyncBtn.addEventListener('click', async () => {
+            if (!navigator.onLine) { showToast('You are offline', 'error'); return; }
+            editorSyncBtn.classList.add('spinning');
+            syncBtn.style.animation = 'spin 0.6s linear infinite';
+            await SyncEngine.sync();
+            await reloadNotesFromIDB();
+            editorSyncBtn.classList.remove('spinning');
+            syncBtn.style.animation = '';
+            showToast('Sync complete', 'success');
+        });
+
+        settingsBtn.addEventListener('click', () => {
+            showToast('Settings coming soon!', 'info');
+        });
 
         // Auto-save — debounced (writes to IndexedDB)
         const triggerAutoSave = debounce(() => autoSave(), 1500);
@@ -318,7 +376,6 @@ const UIController = (() => {
     /** Reload notes from IndexedDB and refresh the UI */
     async function reloadNotesFromIDB() {
         allNotes = await IndexedDBService.getAllNotes();
-        collectAllTags();
         renderFilteredNotes();
         updateFolderCounts();
     }
@@ -381,7 +438,6 @@ const UIController = (() => {
 
     function setActiveFolder(id, name) {
         activeFolder = id;
-        notesHeading.innerHTML = `${MarkdownService.escapeHTML(name)} <span class="notes-count" id="notes-count"></span>`;
         folderList.querySelectorAll('.sidebar-item').forEach(i => {
             i.classList.toggle('active', i.dataset.folderId === String(id));
         });
@@ -420,60 +476,20 @@ const UIController = (() => {
     // ── Tags ──
     let allUniqueTags = [];
 
-    function collectAllTags() {
-        const tagSet = new Set();
-        allNotes.forEach(n => (n.tags || []).forEach(t => tagSet.add(t)));
-        allUniqueTags = [...tagSet].sort();
-        renderTagFilterBar();
-    }
 
-    function renderTagFilterBar() {
-        tagFilterBar.innerHTML = '';
-        if (allUniqueTags.length === 0) return;
-        allUniqueTags.forEach(tag => {
-            const chip = document.createElement('span');
-            chip.className = 'tag-chip' + (activeTagFilter === tag ? ' active' : '');
-            chip.textContent = `#${tag}`;
-            chip.addEventListener('click', () => {
-                activeTagFilter = activeTagFilter === tag ? null : tag;
-                renderTagFilterBar();
-                renderFilteredNotes();
-            });
-            tagFilterBar.appendChild(chip);
-        });
-        if (activeTagFilter) {
-            const clear = document.createElement('span');
-            clear.className = 'tag-chip';
-            clear.textContent = '✕ Clear';
-            clear.addEventListener('click', () => { activeTagFilter = null; renderTagFilterBar(); renderFilteredNotes(); });
-            tagFilterBar.appendChild(clear);
-        }
-    }
+    function renderEditorTags() {
+        // Remove existing tags
+        tagInputWrapper.querySelectorAll('.tag-chip').forEach(el => el.remove());
 
-    function handleTagKeydown(e) {
-        if (e.key === 'Enter' || e.key === ',') {
-            e.preventDefault();
-            const val = tagInput.value.trim().replace(/,/g, '');
-            if (val && !currentTags.includes(val)) {
-                currentTags.push(val);
-                renderModalTags();
-            }
-            tagInput.value = '';
-        } else if (e.key === 'Backspace' && !tagInput.value) {
-            currentTags.pop();
-            renderModalTags();
-        }
-    }
-
-    function renderModalTags() {
-        tagInputWrapper.querySelectorAll('.tag-chip').forEach(c => c.remove());
         currentTags.forEach((tag, i) => {
             const chip = document.createElement('span');
             chip.className = 'tag-chip';
-            chip.innerHTML = `#${MarkdownService.escapeHTML(tag)} <span class="tag-remove" data-idx="${i}">✕</span>`;
-            chip.querySelector('.tag-remove').addEventListener('click', () => {
+            chip.innerHTML = `#${MarkdownService.escapeHTML(tag)} <span class="tag-remove">✕</span>`;
+            chip.querySelector('.tag-remove').addEventListener('click', (e) => {
+                e.stopPropagation();
                 currentTags.splice(i, 1);
-                renderModalTags();
+                renderEditorTags();
+                if (editingNoteId) handleNoteSave(new Event('submit'));
             });
             tagInputWrapper.insertBefore(chip, tagInput);
         });
@@ -485,9 +501,6 @@ const UIController = (() => {
 
         if (activeFolder !== 'all') {
             notes = notes.filter(n => n.folder_id === activeFolder);
-        }
-        if (activeTagFilter) {
-            notes = notes.filter(n => (n.tags || []).includes(activeTagFilter));
         }
         if (searchQuery) {
             notes = notes.filter(n =>
@@ -518,8 +531,6 @@ const UIController = (() => {
 
     function renderFilteredNotes() {
         const notes = getFilteredNotes();
-        const countEl = document.getElementById('notes-count');
-        if (countEl) countEl.textContent = notes.length ? `(${notes.length})` : '';
 
         if (notes.length === 0) {
             const msg = searchQuery ? 'No notes matching your search' : 'No notes yet';
@@ -564,29 +575,14 @@ const UIController = (() => {
             .map(t => `<span class="tag-chip">#${MarkdownService.escapeHTML(t)}</span>`)
             .join('');
 
-        const contentHTML = MarkdownService.render(note.content || '');
-
         return `
       <div class="note-card${pinnedClass}${unsyncedClass}" data-id="${note.id}" style="animation-delay:${index * 0.05}s">
         ${pinBadge}
         <div class="note-title">${MarkdownService.escapeHTML(note.title || 'Untitled')}</div>
-        ${folderBadge}
-        ${tagChips ? `<div class="note-tags">${tagChips}</div>` : ''}
-        <div class="note-content-preview">${contentHTML}</div>
         <div class="note-meta">
+          ${folderBadge}
+          ${tagChips ? `<div class="note-tags">${tagChips}</div>` : ''}
           <span class="note-date">${time}</span>
-          <div class="note-actions">
-            <button class="btn btn-sm btn-ghost btn-pin" title="${note.is_pinned ? 'Unpin' : 'Pin'}">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="${note.is_pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"></line><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.68V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3v4.68a2 2 0 0 1-1.11 1.87l-1.78.9A2 2 0 0 0 5 15.24Z"></path></svg>
-            </button>
-            <button class="btn btn-sm btn-ghost btn-edit" title="Edit">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-            </button>
-            <button class="btn btn-sm btn-danger btn-delete" title="Delete">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-            </button>
-          </div>
-
         </div>
       </div>`;
     }
@@ -597,90 +593,75 @@ const UIController = (() => {
             const note = notes.find(n => n.id === id);
 
             card.addEventListener('click', (e) => {
-                if (e.target.closest('button')) return;
-                if (note) openViewNote(note);
-            });
-
-            card.querySelector('.btn-edit').addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (note) openNoteModal(note);
-            });
-
-            // Pin — write to IndexedDB, trigger sync
-            card.querySelector('.btn-pin').addEventListener('click', async (e) => {
-                e.stopPropagation();
-                const updated = { ...note, is_pinned: !note.is_pinned, _dirty: true, updated_at: new Date().toISOString() };
-                await IndexedDBService.putNote(updated);
-                await reloadNotesFromIDB();
-                // Sync in background — don't re-render, periodic sync will pick it up
-                if (navigator.onLine) SyncEngine.sync();
-            });
-
-            // Delete — tombstone in IndexedDB, trigger sync
-            card.querySelector('.btn-delete').addEventListener('click', async (e) => {
-                e.stopPropagation();
-                if (!confirm('Delete this note?')) return;
-                await IndexedDBService.markDeleted(id);
-                showToast('Note deleted', 'success');
-                await reloadNotesFromIDB();
-                // Sync in background
-                if (navigator.onLine) SyncEngine.sync();
+                if (note) openNoteInEditor(note);
             });
         });
     }
 
-    // ── View note (read-only) ──
-    function openViewNote(note) {
-        viewingNote = note;
-        viewNoteTitle.textContent = note.title || 'Untitled';
-        viewNoteBody.innerHTML = MarkdownService.render(note.content || '<em>No content</em>');
-
-        // Build meta: date, folder badge, tags
-        let metaHTML = `<span class="view-date">${relativeTime(note.updated_at || note.created_at)}</span>`;
-        const folder = allFolders.find(f => f.id === note.folder_id);
-        if (folder) {
-            metaHTML += `<span class="view-folder-badge"><span class="folder-dot" style="background:${folder.color}"></span>${MarkdownService.escapeHTML(folder.name)}</span>`;
-        }
-        (note.tags || []).forEach(t => {
-            metaHTML += `<span class="tag-chip">#${MarkdownService.escapeHTML(t)}</span>`;
-        });
-        if (note.is_pinned) metaHTML += '<span style="color:var(--accent)">Pinned</span>';
-        viewNoteMeta.innerHTML = metaHTML;
-
-        viewNoteModal.classList.add('active');
+    // ── Editor ──
+    function showEditorMobile() {
+        document.body.classList.add('show-editor');
     }
 
-    function closeViewNote() {
-        viewNoteModal.classList.remove('active');
-        viewingNote = null;
+    function hideEditorMobile() {
+        document.body.classList.remove('show-editor');
+        // Un-highlight active note
+        const c = notesGrid.querySelector('.note-card.active-note');
+        if (c) c.classList.remove('active-note');
     }
 
-    // ── Note modal ──
-    function openNoteModal(note = null) {
+    function openNoteInEditor(note = null) {
         editingNoteId = note ? note.id : null;
-        modalTitle.textContent = note ? 'Edit Note' : 'New Note';
-        noteTitleInput.value = note ? note.title : '';
-        noteContentInput.value = note ? note.content : '';
-        notePinInput.checked = note ? note.is_pinned : false;
-        noteFolderSelect.value = note?.folder_id || '';
-        currentTags = note ? [...(note.tags || [])] : [];
-        renderModalTags();
 
-        lastSavedData = note ? { title: note.title, content: note.content } : null;
-        autosaveStatus.classList.add('hidden');
-        if (note) autosaveStatus.classList.remove('hidden');
+        if (note) {
+            editorEmptyState.classList.add('hidden');
+            editorContentArea.classList.remove('hidden');
+            noteTitleInput.value = note.title || '';
+            noteContentInput.value = note.content || '';
+            editorPinBtn.classList.toggle('active', note.is_pinned || false);
+            currentTags = note.tags || [];
+            renderEditorTags();
+            editorTagsWrapper.classList.add('hidden'); // Close by default
 
-        noteModal.classList.add('active');
+            // Default to preview mode for existing notes
+            notePreviewPane.innerHTML = MarkdownService.render(note.content || '');
+            notePreviewPane.classList.remove('hidden');
+            noteContentInput.classList.add('hidden');
+            editorPreviewBtn.classList.add('active');
+
+            lastSavedData = { title: note.title, content: note.content };
+            autosaveStatus.classList.remove('hidden');
+            autosaveStatus.textContent = 'Saved';
+            autosaveStatus.className = 'autosave-status saved';
+        } else {
+            // New Note - default to edit mode
+            notePreviewPane.classList.add('hidden');
+            noteContentInput.classList.remove('hidden');
+            editorPreviewBtn.classList.remove('active');
+
+            editorEmptyState.classList.add('hidden');
+            editorContentArea.classList.remove('hidden');
+            noteTitleInput.value = '';
+            noteContentInput.value = '';
+            editorPinBtn.classList.remove('active');
+
+            lastSavedData = null;
+            autosaveStatus.classList.add('hidden');
+        }
+
+        highlightActiveNoteCard();
+
+        // Setup initial text content
         noteTitleInput.focus();
+
+        // Show the pane on mobile
+        showEditorMobile();
     }
 
-    function closeNoteModal() {
-        noteModal.classList.remove('active');
-        noteForm.reset();
-        currentTags = [];
-        renderModalTags();
-        editingNoteId = null;
-        autosaveStatus.classList.add('hidden');
+    function highlightActiveNoteCard() {
+        notesGrid.querySelectorAll('.note-card').forEach(c => {
+            c.classList.toggle('active-note', c.dataset.id === String(editingNoteId));
+        });
     }
 
     /**
@@ -693,11 +674,12 @@ const UIController = (() => {
         const content = noteContentInput.value.trim();
         if (!title) { showToast('Title is required', 'error'); return; }
 
-        const saveBtn = $('#modal-save-btn');
-        saveBtn.disabled = true;
-        saveBtn.innerHTML = '<span class="spinner"></span>';
+        const saveBtn = null; // No dedicated save btn in inline mode, handled by autosave predominantly
 
         const now = new Date().toISOString();
+
+        const isPinned = editorPinBtn.classList.contains('active');
+        const folderId = (activeFolder !== 'all') ? activeFolder : null;
 
         if (editingNoteId) {
             // Update existing note in IndexedDB
@@ -705,37 +687,39 @@ const UIController = (() => {
             const updated = {
                 ...existing,
                 title, content,
-                is_pinned: notePinInput.checked,
+                is_pinned: isPinned,
                 tags: currentTags,
-                folder_id: noteFolderSelect.value || null,
                 updated_at: now,
                 _dirty: true,
             };
             await IndexedDBService.putNote(updated);
         } else {
-            // Create new note in IndexedDB with a temporary local ID
+            // Create new note in IndexedDB
+            const id = generateLocalId();
             const newNote = {
-                id: generateLocalId(),
+                id: id,
                 user_id: currentUserId,
                 title, content,
-                is_pinned: notePinInput.checked,
+                is_pinned: isPinned,
                 tags: currentTags,
-                folder_id: noteFolderSelect.value || null,
+                folder_id: folderId,
                 created_at: now,
                 updated_at: now,
                 _dirty: true,
                 _deleted: false,
-                _local: true,   // Mark as locally-created (no server ID yet)
+                _local: true,
             };
             await IndexedDBService.putNote(newNote);
+            editingNoteId = id; // Set active id
         }
+        lastSavedData = { title, content };
+        autosaveStatus.classList.remove('hidden');
+        autosaveStatus.textContent = 'Saved locally ✓';
+        autosaveStatus.className = 'autosave-status saved';
 
-        saveBtn.disabled = false;
-        saveBtn.textContent = 'Save';
-
-        showToast(editingNoteId ? 'Note updated' : 'Note created', 'success');
-        closeNoteModal();
+        showToast('Note saved', 'success');
         await reloadNotesFromIDB();
+        highlightActiveNoteCard();
 
         // Async sync — don't block UI
         if (navigator.onLine) SyncEngine.sync().then(() => reloadNotesFromIDB());
@@ -761,15 +745,12 @@ const UIController = (() => {
             const updated = {
                 ...existing,
                 title, content,
-                is_pinned: notePinInput.checked,
-                tags: currentTags,
-                folder_id: noteFolderSelect.value || null,
                 updated_at: new Date().toISOString(),
                 _dirty: true,
             };
             await IndexedDBService.putNote(updated);
 
-            autosaveStatus.textContent = 'Saved locally ✓';
+            autosaveStatus.textContent = 'Saved';
             autosaveStatus.className = 'autosave-status saved';
             lastSavedData = { title, content };
 
@@ -777,6 +758,8 @@ const UIController = (() => {
             allNotes = await IndexedDBService.getAllNotes();
             collectAllTags();
             updateFolderCounts();
+            renderFilteredNotes();
+            highlightActiveNoteCard();
 
             // Trigger async sync
             if (navigator.onLine) SyncEngine.sync().then(() => reloadNotesFromIDB());
