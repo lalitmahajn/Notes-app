@@ -7,7 +7,7 @@
  *   - On new SW version: skipWaiting + claim → instant takeover
  */
 
-const CACHE_NAME = 'secure-notes-v6';
+const CACHE_NAME = 'secure-notes-v7';
 const STATIC_ASSETS = [
     './',
     './index.html',
