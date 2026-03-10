@@ -16,16 +16,14 @@ A **secure, offline-first notes application** built with vanilla HTML/CSS/JS and
 - **🔐 Authentication** — Email + password (Supabase Auth)
 - **📝 Notes CRUD** — Create, edit, delete notes
 - **📌 Pin Notes** — Pin important notes to the top
-- **📋 Markdown** — Write in Markdown (bold, lists, headings, code blocks)
-- **🏷️ Tags** — Tag notes and filter by tag
+- **📋 Markdown & Code** — Write in GitHub Flavored Markdown (bold, lists, headings) with automatic syntax highlighting.
+- **✅ Interactive Checklists** — Clickable checkbox tasks that automatically update your underlying raw text.
 - **📂 Folders** — Organize notes into color-coded folders
 - **🔍 Search** — Real-time search across titles, content, and tags
 - **↕️ Sort** — Sort by date, title, or last updated
 - **🕐 Relative Time** — "2h ago", "3d ago" timestamps
 - **🔄 Auto-Save** — Debounced save while editing
-- **📴 Offline-First** — Full offline support via IndexedDB + background sync
-- **📱 PWA** — Installable as a native-like app
-- **🎨 Dark UI** — Glassmorphic dark theme, responsive on all devices
+- **📴 Offline-First** — Full offline support via IndexedDB + background sync with "Needs Sync" and animated "Syncing..." visual states.
 - **📱 Mobile Friendly** — Fully responsive UI optimized for mobile, tablet, and desktop
 
 ---
@@ -225,4 +223,6 @@ This project is licensed under the **PolyForm Noncommercial License 1.0.0** — 
 
 - [Supabase](https://supabase.com) — Backend as a Service
 - [marked.js](https://marked.js.org/) — Markdown parser
+- [highlight.js](https://highlightjs.org/) — Code syntax highlighting
+- [Lucide](https://lucide.dev/) — Beautiful SVG icons
 - [Inter](https://rsms.me/inter/) — UI typeface

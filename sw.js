@@ -4,10 +4,10 @@
  * Strategy:
  *   - Static assets: Stale-while-revalidate (serve cached, update in background)
  *   - Supabase / CDN: Pass through, never intercept
- *   - On new SW version: skipWaiting + claim → instant takeover
+ *   - On new SW version: skipWaiting + claim — instant takeover
  */
 
-const CACHE_NAME = 'secure-notes-v7';
+const CACHE_NAME = 'secure-notes-v8';
 const STATIC_ASSETS = [
     './',
     './index.html',

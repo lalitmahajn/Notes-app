@@ -38,13 +38,31 @@ const SyncEngine = (() => {
             await pushDeletedNotes();
             await pullRemoteNotes();
             await IndexedDBService.setMeta('last_synced_at', new Date().toISOString());
-            _status('synced', 'Synced ✓');
+            _status('synced', 'Synced');
             console.log('[Sync] Complete');
         } catch (err) {
             console.error('[Sync] Error:', err);
             _status('error', 'Sync failed');
         } finally {
             syncing = false;
+        }
+    }
+
+    /**
+     * Quickly checks if there are any locally modified/deleted notes that haven't been pushed.
+     * Use to update UI to 'Needs Sync' state without running a full sync.
+     */
+    async function checkDirtyState() {
+        if (syncing || !navigator.onLine) return;
+        try {
+            const dirty = await IndexedDBService.getDirtyNotes();
+            const deleted = await IndexedDBService.getDeletedNotes();
+            
+            if (dirty.length > 0 || deleted.length > 0) {
+                _status('needs-sync', 'Needs Sync');
+            }
+        } catch (err) {
+            console.error('[Sync] Error checking dirty state:', err);
         }
     }
 
@@ -194,5 +212,5 @@ const SyncEngine = (() => {
         }
     }
 
-    return { sync, setUserId, setStatusCallback };
+    return { sync, setUserId, setStatusCallback, checkDirtyState };
 })();

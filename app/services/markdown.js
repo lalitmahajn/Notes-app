@@ -1,5 +1,5 @@
 /**
- * MarkdownService — markdown → HTML via marked.js
+ * MarkdownService -- markdown to HTML via marked.js
  */
 const MarkdownService = (() => {
     let ready = false;
@@ -18,11 +18,19 @@ const MarkdownService = (() => {
         catch { return escapeHTML(md); }
     }
 
+    function highlight(container) {
+        if (!container || typeof hljs === 'undefined') return;
+        container.querySelectorAll('pre code').forEach((block) => {
+            block.removeAttribute('data-highlighted');
+            hljs.highlightElement(block);
+        });
+    }
+
     function escapeHTML(str) {
         const d = document.createElement('div');
         d.textContent = str;
         return d.innerHTML;
     }
 
-    return { render, escapeHTML };
+    return { render, escapeHTML, highlight };
 })();

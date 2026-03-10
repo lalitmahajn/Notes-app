@@ -53,12 +53,15 @@ const UIController = (() => {
     const noteContentInput = $('#note-content-input');
     const notePreviewPane = $('#note-preview-pane');
     const editorTagsWrapper = $('#editor-tags-wrapper');
+    const editorToolbar = $('#editor-toolbar');
+    const editorSplitContainer = $('#editor-split-container');
     const tagInputWrapper = $('#tag-input-wrapper');
     const tagInput = $('#tag-input');
     const autosaveStatus = $('#autosave-status');
 
     // Bottom Bar Buttons
     const editorPreviewBtn = $('#editor-preview-btn');
+    const editorSplitBtn = $('#editor-split-btn');
     const editorPinBtn = $('#editor-pin-btn');
     const editorTagsBtn = $('#editor-tags-btn');
     const editorDeleteBtn = $('#editor-delete-btn');
@@ -83,6 +86,7 @@ const UIController = (() => {
 
     // Auto-save
     let lastSavedData = null;
+    let editorMode = 'edit';
 
     // Periodic sync timer
     let periodicSyncTimer = null;
@@ -102,7 +106,18 @@ const UIController = (() => {
 
     /** Update the sync status pill in the top bar */
     function updateSyncStatus(state, msg) {
-        syncStatusEl.textContent = msg;
+        let iconHtml = '';
+        if (state === 'synced') {
+            iconHtml = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><path d="M20 6 9 17l-5-5"/></svg>`;
+        } else if (state === 'needs-sync') {
+            iconHtml = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up-circle"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4"/><path d="M12 16V8"/></svg>`;
+        } else if (state === 'syncing') {
+            iconHtml = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-refresh-cw" style="animation: spin 1s linear infinite"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`;
+        } else if (state === 'offline' || state === 'error') {
+            iconHtml = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-alert-circle"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
+        }
+
+        syncStatusEl.innerHTML = `<div style="display:flex; align-items:center; gap:4px;"><span>${msg}</span> ${iconHtml}</div>`;
         syncStatusEl.className = 'sync-status ' + state;
     }
 
@@ -121,17 +136,19 @@ const UIController = (() => {
 
         // Editor Bottom Bar Actions
         editorPreviewBtn.addEventListener('click', () => {
-            const isPreview = !notePreviewPane.classList.contains('hidden');
-            if (isPreview) {
-                notePreviewPane.classList.add('hidden');
-                noteContentInput.classList.remove('hidden');
-                editorPreviewBtn.classList.remove('active');
-            } else {
-                notePreviewPane.innerHTML = MarkdownService.render(noteContentInput.value);
-                notePreviewPane.classList.remove('hidden');
-                noteContentInput.classList.add('hidden');
-                editorPreviewBtn.classList.add('active');
-            }
+            if (editorMode === 'preview') setEditorMode('edit');
+            else setEditorMode('preview');
+        });
+
+        editorSplitBtn.addEventListener('click', () => {
+            if (editorMode === 'split') setEditorMode('edit');
+            else setEditorMode('split');
+        });
+
+        editorToolbar.addEventListener('click', (e) => {
+            const btn = e.target.closest('.md-tool-btn');
+            if (!btn) return;
+            applyMarkdown(btn.dataset.md);
         });
 
         editorPinBtn.addEventListener('click', async () => {
@@ -201,8 +218,38 @@ const UIController = (() => {
 
         // Auto-save — debounced (writes to IndexedDB)
         const triggerAutoSave = debounce(() => autoSave(), 1500);
+        const triggerPreviewRender = debounce(() => {
+            if (editorMode === 'split') updatePreview();
+        }, 150);
         noteTitleInput.addEventListener('input', triggerAutoSave);
         noteContentInput.addEventListener('input', triggerAutoSave);
+        noteContentInput.addEventListener('input', triggerPreviewRender);
+
+        // Interactive Checklists in Preview
+        notePreviewPane.addEventListener('change', (e) => {
+            if (e.target.tagName === 'INPUT' && e.target.type === 'checkbox') {
+                const cb = e.target;
+                const index = parseInt(cb.dataset.index, 10);
+                if (isNaN(index)) return;
+
+                let matchCount = -1;
+                const newContent = noteContentInput.value.replace(/^([\s]*[-*+]\s+\[)([\s xX])(\])/gm, (match, prefix, state, suffix) => {
+                    matchCount++;
+                    if (matchCount === index) {
+                        const newState = cb.checked ? 'x' : ' ';
+                        return `${prefix}${newState}${suffix}`;
+                    }
+                    return match;
+                });
+
+                if (newContent !== noteContentInput.value) {
+                    noteContentInput.value = newContent;
+                    const cursorPosition = noteContentInput.selectionStart;
+                    noteContentInput.dispatchEvent(new Event('input'));
+                    noteContentInput.setSelectionRange(cursorPosition, cursorPosition);
+                }
+            }
+        });
 
         // Search
         searchInput.addEventListener('input', () => {
@@ -259,13 +306,18 @@ const UIController = (() => {
     function listenNetworkChanges() {
         window.addEventListener('online', () => {
             console.log('[Network] Back online — triggering sync');
-            updateSyncStatus('syncing', 'Syncing…');
+            updateSyncStatus('syncing', 'Syncing...');
             SyncEngine.sync().then(() => reloadNotesFromIDB());
         });
         window.addEventListener('offline', () => {
             console.log('[Network] Went offline');
             updateSyncStatus('offline', 'Offline');
         });
+        
+        // Periodically check if there's dirty state while online
+        setInterval(() => {
+            if (navigator.onLine) SyncEngine.checkDirtyState();
+        }, 5000);
 
         // Set initial network status
         if (!navigator.onLine) {
@@ -389,7 +441,6 @@ const UIController = (() => {
             // Keep existing folders in memory
         }
         renderFolders();
-        populateFolderSelects();
     }
 
     // ── Folders rendering ──
@@ -407,8 +458,8 @@ const UIController = (() => {
         <span>${MarkdownService.escapeHTML(f.name)}</span>
         <span class="folder-count" data-count-folder="${f.id}"></span>
         <div class="folder-actions">
-          <button class="btn-icon btn-edit-folder" title="Edit">✏️</button>
-          <button class="btn-icon btn-delete-folder" title="Delete">🗑️</button>
+          <button class="btn-icon btn-edit-folder" title="Edit"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-pencil"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg></button>
+          <button class="btn-icon btn-delete-folder" title="Delete"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg></button>
         </div>`;
             li.addEventListener('click', (e) => {
                 if (e.target.closest('.btn-edit-folder') || e.target.closest('.btn-delete-folder')) return;
@@ -453,15 +504,7 @@ const UIController = (() => {
         });
     }
 
-    function populateFolderSelects() {
-        noteFolderSelect.innerHTML = '<option value="">None</option>';
-        allFolders.forEach(f => {
-            const opt = document.createElement('option');
-            opt.value = f.id;
-            opt.textContent = f.name;
-            noteFolderSelect.appendChild(opt);
-        });
-    }
+
 
     // ── Sidebar toggle ──
     function toggleSidebar() {
@@ -484,7 +527,7 @@ const UIController = (() => {
         currentTags.forEach((tag, i) => {
             const chip = document.createElement('span');
             chip.className = 'tag-chip';
-            chip.innerHTML = `#${MarkdownService.escapeHTML(tag)} <span class="tag-remove">✕</span>`;
+            chip.innerHTML = `#${MarkdownService.escapeHTML(tag)} <span class="tag-remove" style="display:inline-flex; align-items:center; opacity:0.6; margin-left:2px;"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>`;
             chip.querySelector('.tag-remove').addEventListener('click', (e) => {
                 e.stopPropagation();
                 currentTags.splice(i, 1);
@@ -610,6 +653,107 @@ const UIController = (() => {
         if (c) c.classList.remove('active-note');
     }
 
+    function updatePreview() {
+        notePreviewPane.innerHTML = MarkdownService.render(noteContentInput.value);
+        MarkdownService.highlight(notePreviewPane);
+
+        // Make rendered checkboxes interactive
+        notePreviewPane.querySelectorAll('input[type="checkbox"]').forEach((cb, index) => {
+            cb.removeAttribute('disabled');
+            cb.dataset.index = index;
+            cb.style.cursor = 'pointer';
+        });
+    }
+
+    function setEditorMode(mode) {
+        editorMode = mode;
+        const isPreview = mode === 'preview';
+        const isSplit = mode === 'split';
+
+        notePreviewPane.classList.toggle('hidden', !isPreview && !isSplit);
+        noteContentInput.classList.toggle('hidden', isPreview);
+        editorSplitContainer.classList.toggle('split', isSplit);
+
+        editorPreviewBtn.classList.toggle('active', isPreview);
+        editorSplitBtn.classList.toggle('active', isSplit);
+
+        if (isPreview || isSplit) updatePreview();
+    }
+
+    function wrapSelection(prefix, suffix, placeholder) {
+        const el = noteContentInput;
+        const start = el.selectionStart;
+        const end = el.selectionEnd;
+        const selected = el.value.slice(start, end);
+        const insert = selected || placeholder;
+        el.value = el.value.slice(0, start) + prefix + insert + suffix + el.value.slice(end);
+        el.setSelectionRange(start + prefix.length, start + prefix.length + insert.length);
+        el.focus();
+    }
+
+    function prefixLines(prefix) {
+        const el = noteContentInput;
+        const value = el.value;
+        const start = el.selectionStart;
+        const end = el.selectionEnd;
+        const lineStart = value.lastIndexOf('\n', start - 1);
+        const startIndex = lineStart === -1 ? 0 : lineStart + 1;
+        const selected = value.slice(startIndex, end);
+        const lines = selected.split('\n').map(line => prefix + line);
+        const newText = lines.join('\n');
+        el.value = value.slice(0, startIndex) + newText + value.slice(end);
+        el.setSelectionRange(startIndex, startIndex + newText.length);
+        el.focus();
+    }
+
+    function applyMarkdown(action) {
+        if (editorMode === 'preview') setEditorMode('edit');
+
+        switch (action) {
+            case 'bold':
+                wrapSelection('**', '**', 'bold text');
+                break;
+            case 'italic':
+                wrapSelection('*', '*', 'italic text');
+                break;
+            case 'heading':
+                prefixLines('# ');
+                break;
+            case 'list':
+                prefixLines('- ');
+                break;
+            case 'checklist':
+                prefixLines('- [ ] ');
+                break;
+            case 'quote':
+                prefixLines('> ');
+                break;
+            case 'code':
+                wrapSelection('`', '`', 'code');
+                break;
+            case 'codeblock':
+                wrapSelection('```\n', '\n```', 'code');
+                break;
+            case 'link': {
+                const el = noteContentInput;
+                const start = el.selectionStart;
+                const end = el.selectionEnd;
+                const selected = el.value.slice(start, end) || 'link text';
+                const url = 'https://';
+                const insert = `[${selected}](${url})`;
+                el.value = el.value.slice(0, start) + insert + el.value.slice(end);
+                const urlStart = start + selected.length + 3;
+                el.setSelectionRange(urlStart, urlStart + url.length);
+                el.focus();
+                break;
+            }
+            default:
+                return;
+        }
+
+        noteContentInput.dispatchEvent(new Event('input'));
+    }
+
     function openNoteInEditor(note = null) {
         editingNoteId = note ? note.id : null;
 
@@ -624,10 +768,7 @@ const UIController = (() => {
             editorTagsWrapper.classList.add('hidden'); // Close by default
 
             // Default to preview mode for existing notes
-            notePreviewPane.innerHTML = MarkdownService.render(note.content || '');
-            notePreviewPane.classList.remove('hidden');
-            noteContentInput.classList.add('hidden');
-            editorPreviewBtn.classList.add('active');
+            setEditorMode('preview');
 
             lastSavedData = { title: note.title, content: note.content };
             autosaveStatus.classList.remove('hidden');
@@ -635,9 +776,7 @@ const UIController = (() => {
             autosaveStatus.className = 'autosave-status saved';
         } else {
             // New Note - default to edit mode
-            notePreviewPane.classList.add('hidden');
-            noteContentInput.classList.remove('hidden');
-            editorPreviewBtn.classList.remove('active');
+            setEditorMode('edit');
 
             editorEmptyState.classList.add('hidden');
             editorContentArea.classList.remove('hidden');
@@ -714,18 +853,21 @@ const UIController = (() => {
         }
         lastSavedData = { title, content };
         autosaveStatus.classList.remove('hidden');
-        autosaveStatus.textContent = 'Saved locally ✓';
+        autosaveStatus.textContent = 'Saved locally';
         autosaveStatus.className = 'autosave-status saved';
 
         showToast('Note saved', 'success');
         await reloadNotesFromIDB();
         highlightActiveNoteCard();
 
-        // Async sync — don't block UI
+        // Instantly switch to Needs Sync before background sync kicks in
+        updateSyncStatus('needs-sync', 'Needs Sync');
+
+        // Async sync Ã¢â‚¬â€ don't block UI
         if (navigator.onLine) SyncEngine.sync().then(() => reloadNotesFromIDB());
     }
 
-    // ── Auto-save (writes to IndexedDB, not Supabase) ──
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Auto-save (writes to IndexedDB, not Supabase) Ã¢â€â‚¬Ã¢â€â‚¬
     async function autoSave() {
         if (!editingNoteId) return;
         const title = noteTitleInput.value.trim();
@@ -734,7 +876,7 @@ const UIController = (() => {
 
         if (lastSavedData && lastSavedData.title === title && lastSavedData.content === content) return;
 
-        autosaveStatus.textContent = 'Saving…';
+        autosaveStatus.textContent = 'Saving...';
         autosaveStatus.className = 'autosave-status saving';
         autosaveStatus.classList.remove('hidden');
 
@@ -770,7 +912,7 @@ const UIController = (() => {
         }
     }
 
-    // ── Folder modal (online-only) ──
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Folder modal (online-only) Ã¢â€â‚¬Ã¢â€â‚¬
     function openFolderModal(folder = null) {
         editingFolderId = folder ? folder.id : null;
         folderModalTitle.textContent = folder ? 'Edit Folder' : 'New Folder';
@@ -807,7 +949,7 @@ const UIController = (() => {
         await loadFolders();
     }
 
-    // ── Toast ──
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Toast Ã¢â€â‚¬Ã¢â€â‚¬
     function showToast(message, type = 'success') {
         toastEl.textContent = message;
         toastEl.className = type;
@@ -817,7 +959,7 @@ const UIController = (() => {
         toastTimeout = setTimeout(() => toastEl.classList.remove('show'), 3200);
     }
 
-    // ── PWA ──
+    // Ã¢â€â‚¬Ã¢â€â‚¬ PWA Ã¢â€â‚¬Ã¢â€â‚¬
     function registerServiceWorker() {
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then((reg) => {
